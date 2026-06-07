@@ -1,14 +1,19 @@
 """
-Redundancy Analyzer.
+Redundancy Analyzer — Unified Signal Architecture.
 
-Detects near-duplicate, overlapping, and boilerplate context items.
-Uses a deterministic hybrid heuristic approach:
-  1. Exact match detection (fast path)
-  2. Jaccard similarity on word sets
+All redundancy detection is driven by a single, deterministic
+Redundancy Signal function RS(i, j) → float ∈ [0, 1].
 
-Critical design rule: NEVER blindly flag overlap as waste.
-Adjacent chunks from the same source get EXPECTED_OVERLAP.
-Only independent sources with high similarity get REDUNDANT_CONTEXT.
+Design principles:
+  - Single source of truth: findings drive both UI output AND penalty math.
+  - No split-brain: there is ONE waste calculation, not two.
+  - No hard threshold cliff: RS is continuous, not binary.
+  - Semantic-blind: tokens + character overlap only. No embeddings.
+  - Short-text aware: length weighting prevents sparse-data instability.
+
+RS(i,j) = (0.6 × Jaccard(tokens) + 0.3 × ngram_overlap(N=4) + 0.1 × char_overlap)
+         × length_weight
+         × classification_modifier
 """
 
 from __future__ import annotations
@@ -24,20 +29,38 @@ from contextops.core.models import (
 )
 
 
-# ── Thresholds (fixed, deterministic, CI-safe) ──────────────────────────
+# ── Constants ────────────────────────────────────────────────────────────
 
-EXACT_MATCH_THRESHOLD: float = 1.0
-HIGH_SIMILARITY_THRESHOLD: float = 0.75
-MODERATE_SIMILARITY_THRESHOLD: float = 0.45
+# Minimum RS to produce a finding (replaces hard threshold cliff).
+# A continuous signal: RS = 0.12 means "very mild overlap", RS = 1.0 = exact copy.
+RS_MINIMUM: float = 0.12
 
-# Words that indicate boilerplate when they dominate the content
+# Short texts need at least this many tokens to produce a full-weight RS.
+# Below this, the length weight dampens the signal proportionally.
+RS_LENGTH_NORMALIZER: int = 12
+
+# N-gram window for per-pair N-gram overlap. Smaller than the old 8/12/16
+# global scan so short sentences (4–7 words) are still captured.
+NGRAM_N: int = 4
+
+# Max items before switching to hash-bucket pairwise strategy (O(n²) cap).
+MAX_PAIRWISE_ITEMS: int = 50
+
+# Boilerplate modifier: overlap between two boilerplate items carries near-zero weight.
+BOILERPLATE_RS_MODIFIER: float = 0.0
+
+# Adjacent-chunk modifier: overlap between adjacent chunks from the same
+# source is expected — penalise at 20% of full RS.
+ADJACENT_RS_MODIFIER: float = 0.2
+
+# Words that indicate boilerplate when they dominate the content.
 BOILERPLATE_SIGNALS: set[str] = {
     "please", "always", "must", "never", "ensure", "remember",
     "important", "note", "follow", "instructions", "guidelines",
     "rules", "format", "respond", "output", "do not",
 }
 
-# Lightweight synonym mapping for intent duplication
+# Lightweight synonym map for intent normalisation (deterministic, no embeddings).
 SYNONYM_MAP: dict[str, str] = {
     "concise": "short",
     "brief": "short",
@@ -50,15 +73,10 @@ SYNONYM_MAP: dict[str, str] = {
 }
 
 
-def _get_source_base(s: str) -> str:
-    """Strip trailing numeric suffixes and extensions to get a canonical source base name.
+# ── Tokenisation helpers ─────────────────────────────────────────────────
 
-    Examples:
-        'doc_1'  -> 'doc'
-        'page1.md' -> 'page'
-        'chunk-3' -> 'chunk'
-        'readme.md' -> 'readme.md'  (no suffix stripped)
-    """
+def _get_source_base(s: str) -> str:
+    """Strip trailing numeric suffixes to get a canonical source base name."""
     base = re.sub(r'[_\-]?\d+(?:\.[a-zA-Z0-9]+)?$', '', s)
     return base if base else s
 
@@ -69,24 +87,90 @@ def _get_ordered_tokens(text: str) -> list[str]:
     words = text.split()
     return [SYNONYM_MAP.get(w, w) for w in words]
 
+
 def _tokenize_words(text: str) -> set[str]:
-    """Split text into a lowercase word set, stripping punctuation and mapping synonyms."""
+    """Split text into a lowercase word set, stripping punctuation."""
     return set(_get_ordered_tokens(text))
 
 
-def _jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
-    """
-    Compute Jaccard similarity between two word sets.
+# ── RS sub-components ────────────────────────────────────────────────────
 
-    Returns 0.0 if both sets are empty, otherwise |intersection| / |union|.
-    Deterministic. No randomness. CI-safe.
-    """
+def _jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
+    """Compute Jaccard similarity between two word sets."""
     if not set_a and not set_b:
         return 0.0
     intersection = set_a & set_b
     union = set_a | set_b
     return len(intersection) / len(union)
 
+
+def _compute_ngram_overlap(tokens_a: list[str], tokens_b: list[str], n: int = NGRAM_N) -> float:
+    """
+    Compute N-gram overlap ratio between two token lists.
+
+    Falls back to bigrams if either list is shorter than N.
+    Returns 0.0 if too short even for bigrams.
+    """
+    if n > 2 and (len(tokens_a) < n or len(tokens_b) < n):
+        return _compute_ngram_overlap(tokens_a, tokens_b, n=2)
+    if len(tokens_a) < 2 or len(tokens_b) < 2:
+        return 0.0
+
+    ngrams_a = {tuple(tokens_a[i:i + n]) for i in range(len(tokens_a) - n + 1)}
+    ngrams_b = {tuple(tokens_b[i:i + n]) for i in range(len(tokens_b) - n + 1)}
+
+    if not ngrams_a or not ngrams_b:
+        return 0.0
+
+    union = ngrams_a | ngrams_b
+    if not union:
+        return 0.0
+    return len(ngrams_a & ngrams_b) / len(union)
+
+
+def _compute_char_overlap(text_a: str, text_b: str) -> float:
+    """Compute character-level Jaccard similarity (case-insensitive)."""
+    chars_a = set(text_a.lower())
+    chars_b = set(text_b.lower())
+    if not chars_a and not chars_b:
+        return 0.0
+    return len(chars_a & chars_b) / len(chars_a | chars_b)
+
+
+def _compute_rs(item_a: ContextItem, item_b: ContextItem) -> float:
+    """
+    Compute the unified Redundancy Signal RS(i,j) ∈ [0, 1].
+
+    RS = (0.6 × Jaccard(tokens) + 0.3 × ngram_overlap + 0.1 × char_overlap)
+         × length_weight
+
+    length_weight = min(1.0, min_tokens / RS_LENGTH_NORMALIZER)
+
+    Signal contract:
+      - Reads ONLY from item content and tokens.
+      - No embeddings, no external APIs, no difflib.
+      - Fully deterministic.
+    """
+    tokens_a = _get_ordered_tokens(item_a.content)
+    tokens_b = _get_ordered_tokens(item_b.content)
+
+    words_a = set(tokens_a)
+    words_b = set(tokens_b)
+
+    jaccard = _jaccard_similarity(words_a, words_b)
+    ngram = _compute_ngram_overlap(tokens_a, tokens_b)
+    char_overlap = _compute_char_overlap(item_a.content, item_b.content)
+
+    # Length-aware weight: short text is sparse — downscale to avoid false positives.
+    # Use actual word count (always available) as the length measure.
+    min_len = min(len(tokens_a), len(tokens_b))
+    length_weight = min(1.0, min_len / RS_LENGTH_NORMALIZER)
+
+    rs = (0.6 * jaccard + 0.3 * ngram + 0.1 * char_overlap) * length_weight
+    return round(min(1.0, rs), 4)
+
+
+# ── Classification helpers ───────────────────────────────────────────────
 
 def _is_adjacent_source(item_a: ContextItem, item_b: ContextItem) -> bool:
     """
@@ -98,11 +182,6 @@ def _is_adjacent_source(item_a: ContextItem, item_b: ContextItem) -> bool:
     if not item_a.source or not item_b.source:
         return False
 
-    # Same source base (e.g., "chunk_3" and "chunk_4" from same doc)
-    source_a = item_a.source
-    source_b = item_b.source
-
-    # Check if metadata indicates adjacency
     idx_a = item_a.metadata.get("index") or item_a.metadata.get("chunk_index")
     idx_b = item_b.metadata.get("index") or item_b.metadata.get("chunk_index")
 
@@ -112,154 +191,78 @@ def _is_adjacent_source(item_a: ContextItem, item_b: ContextItem) -> bool:
         except (ValueError, TypeError):
             pass
 
-    # Check if sources share a base name (e.g., "docs/api.md", "page1.md", "doc-2")
-    base_a = _get_source_base(source_a)
-    base_b = _get_source_base(source_b)
-    return base_a == base_b and source_a != source_b
+    base_a = _get_source_base(item_a.source)
+    base_b = _get_source_base(item_b.source)
+    return base_a == base_b and item_a.source != item_b.source
 
 
 def _is_boilerplate(item: ContextItem) -> bool:
     """
     Check if an item's content is primarily boilerplate instructions.
 
-    Returns True if a high proportion of word occurrences match boilerplate signals.
-    Uses an ordered token list (not a set) so word frequency is correctly measured.
-    e.g. "please please please do this" → 3/5 = 60% signal density, correctly fires.
+    Requires at least 3 words so ultra-short phrases don't mis-fire.
     """
-    words = _get_ordered_tokens(item.content)   # list, preserves frequency
-    if len(words) < 5:
+    words = _get_ordered_tokens(item.content)
+    if len(words) < 3:
         return False
     signal_count = sum(1 for w in words if w in BOILERPLATE_SIGNALS)
     return (signal_count / len(words)) > 0.25
 
 
-def _classify(
-    item_a: ContextItem,
-    item_b: ContextItem,
-    similarity: float,
-) -> RedundancyClassification:
+def _classify(item_a: ContextItem, item_b: ContextItem) -> RedundancyClassification:
     """
     Classify the type of redundancy between two items.
 
-    Rules:
+    Rules (in priority order):
     1. Adjacent chunks from same source → EXPECTED_OVERLAP
     2. Both are boilerplate → BOILERPLATE
-    3. Everything else with high similarity → REDUNDANT_CONTEXT
+    3. Everything else with RS >= RS_MINIMUM → REDUNDANT_CONTEXT
     """
     if _is_adjacent_source(item_a, item_b):
         return RedundancyClassification.EXPECTED_OVERLAP
-
     if _is_boilerplate(item_a) and _is_boilerplate(item_b):
         return RedundancyClassification.BOILERPLATE
-
     return RedundancyClassification.REDUNDANT_CONTEXT
 
 
+def _get_rs_modifier(classification: RedundancyClassification) -> float:
+    """Return the RS modifier for a given classification."""
+    if classification == RedundancyClassification.BOILERPLATE:
+        return BOILERPLATE_RS_MODIFIER
+    if classification == RedundancyClassification.EXPECTED_OVERLAP:
+        return ADJACENT_RS_MODIFIER
+    return 1.0
+
+
+# ── Main entry point ─────────────────────────────────────────────────────
+
 def analyze_redundancy(bundle: ContextBundle) -> tuple[list[RedundancyFinding], int]:
     """
-    Detect redundant pairs in a ContextBundle and calculate global final waste.
+    Detect redundant pairs in a ContextBundle using the unified RS signal.
 
-    Uses a hybrid approach:
-    1. Fast path chunk-to-chunk exact/Jaccard similarity for human-readable findings.
-    2. Global Multi-Scale N-grams (8, 12, 16) for authoritative penalty math.
+    Architecture:
+      RS(i,j) → classification → modifier → finding → waste aggregation
+
+    Findings are the SINGLE SOURCE OF TRUTH for:
+      - Human-readable output (issue + fix)
+      - Waste token count (fed back into engine for scoring)
 
     Returns:
-        tuple of (list of RedundancyFinding, final_wasted_tokens integer)
+        tuple of (list[RedundancyFinding], final_wasted_tokens)
+        where final_wasted_tokens is the sum of REDUNDANT_CONTEXT finding waste.
     """
     findings: list[RedundancyFinding] = []
     items = bundle.items
-    
-    # --- 1. Raw Signal Extraction (Multi-Scale N-grams) ---
-    SCALES = [8, 12, 16]
-    
-    item_tokens = []
-    total_token_count = 0
-    for item in items:
-        tokens = _get_ordered_tokens(item.content)
-        item_tokens.append((item, tokens, total_token_count))
-        total_token_count += len(tokens)
-    
-    # Fast-path: if content is very large and all items are unique, skip N-gram scan
-    MAX_NGRAM_TOKENS = 10000  # Only run N-gram scan below this token count
-    
-    skip_ngram = False
-    if total_token_count > MAX_NGRAM_TOKENS:
-        # Check if there are any content hash collisions (potential duplicates)
-        from hashlib import md5 as _md5
-        content_hashes = set()
-        has_collision = False
-        for item in items:
-            h = _md5(item.content.strip().lower().encode()).hexdigest()
-            if h in content_hashes:
-                has_collision = True
-                break
-            content_hashes.add(h)
-        
-        if not has_collision:
-            # All items are unique — no token-level redundancy possible
-            skip_ngram = True
-    
-    scale_waste_counts = {}
-    
-    if not skip_ngram:
-        for N in SCALES:
-            token_redundancy_score = [0] * total_token_count
-            seen_ngrams = {}
-            
-            for item, tokens, offset in item_tokens:
-                if len(tokens) < N:
-                    continue
-                for i in range(len(tokens) - N + 1):
-                    ngram = tuple(tokens[i:i+N])
-                    seen_ngrams.setdefault(ngram, []).append((offset + i, item))
-                    
-            for ngram, occurrences in seen_ngrams.items():
-                if len(occurrences) > 1:
-                    occ_items = [occ[1] for occ in occurrences]
-                    
-                    # Respect Boilerplate and Expected Overlap
-                    if all(_is_boilerplate(it) for it in occ_items):
-                        continue
-                        
-                    is_waste = False
-                    for i in range(len(occ_items)):
-                        for j in range(i+1, len(occ_items)):
-                            if occ_items[i].id != occ_items[j].id and not _is_adjacent_source(occ_items[i], occ_items[j]):
-                                is_waste = True
-                                break
-                        if is_waste: break
-                            
-                    # Self-duplication is waste unless boilerplate
-                    if not is_waste and all(occ_items[0].id == it.id for it in occ_items):
-                        is_waste = True
-                        
-                    if is_waste:
-                        for start_idx, _ in occurrences:
-                            for j in range(start_idx, start_idx + N):
-                                token_redundancy_score[j] += 1
-                                
-            scale_waste_counts[N] = sum(token_redundancy_score)
-        
-    # --- 2. Structural Aggregation (Weighted Summation & Compression) ---
-    weighted_sum = (
-        0.4 * scale_waste_counts.get(8, 0) +
-        0.35 * scale_waste_counts.get(12, 0) +
-        0.25 * scale_waste_counts.get(16, 0)
-    )
-    import math
-    final_wasted_tokens = int(math.sqrt(weighted_sum)) if weighted_sum > 0 else 0
 
-    # --- 3. Generate Human-Readable Findings ---
-    # For large bundles, limit pairwise comparisons using content-hash bucketing.
-    # Exact duplicates are grouped first (O(n)), then cross-group Jaccard is
-    # limited to a sample to keep total work bounded.
-
-    MAX_PAIRWISE_ITEMS = 50  # Only do full O(n²) when n ≤ 50
-
+    # Determine which pairs to compare.
     if len(items) <= MAX_PAIRWISE_ITEMS:
-        pairs_to_check = [(i, j) for i in range(len(items)) for j in range(i + 1, len(items))]
+        pairs_to_check = [
+            (i, j)
+            for i in range(len(items))
+            for j in range(i + 1, len(items))
+        ]
     else:
-        # Hash-bucket fast path: group items by stripped content hash
+        # Hash-bucket fast path: group items by stripped content hash.
         from hashlib import md5
         buckets: dict[str, list[int]] = {}
         for idx, item in enumerate(items):
@@ -273,76 +276,82 @@ def analyze_redundancy(bundle: ContextBundle) -> tuple[list[RedundancyFinding], 
                 for b_pos in range(a_pos + 1, len(indices)):
                     pairs_to_check.append((indices[a_pos], indices[b_pos]))
 
-        # Add a bounded sample of cross-bucket pairs for fuzzy detection
-        all_indices = list(range(len(items)))
+        # Add a bounded sample of cross-bucket pairs for fuzzy detection.
         bucket_keys = list(buckets.keys())
         cross_pairs_added = 0
-        max_cross_pairs = MAX_PAIRWISE_ITEMS * 10  # cap at ~500
+        max_cross_pairs = MAX_PAIRWISE_ITEMS * 10
         for bi in range(len(bucket_keys)):
             if cross_pairs_added >= max_cross_pairs:
                 break
             for bj in range(bi + 1, len(bucket_keys)):
                 if cross_pairs_added >= max_cross_pairs:
                     break
-                # Compare first item from each bucket
-                pairs_to_check.append((buckets[bucket_keys[bi]][0], buckets[bucket_keys[bj]][0]))
+                pairs_to_check.append(
+                    (buckets[bucket_keys[bi]][0], buckets[bucket_keys[bj]][0])
+                )
                 cross_pairs_added += 1
 
     for i_idx, j_idx in pairs_to_check:
         item_a = items[i_idx]
         item_b = items[j_idx]
 
-        # Skip empty content
+        # Skip empty content.
         if not item_a.content.strip() or not item_b.content.strip():
             continue
 
-        # Fast path: exact match
-        if item_a.content.strip() == item_b.content.strip():
-            similarity = EXACT_MATCH_THRESHOLD
-        else:
-            words_a = _tokenize_words(item_a.content)
-            words_b = _tokenize_words(item_b.content)
-            similarity = _jaccard_similarity(words_a, words_b)
+        # Compute the unified RS signal.
+        rs = _compute_rs(item_a, item_b)
 
-        # Only report if above moderate threshold
-        if similarity < MODERATE_SIMILARITY_THRESHOLD:
+        # Below the minimum RS floor → not a meaningful overlap.
+        if rs < RS_MINIMUM:
             continue
 
-        classification = _classify(item_a, item_b, similarity)
+        classification = _classify(item_a, item_b)
+        modifier = _get_rs_modifier(classification)
+        rs_effective = round(rs * modifier, 4)
 
-        # Estimate waste: the smaller item's tokens are "wasted" if redundant
-        waste = min(item_a.token_count, item_b.token_count)
-        if classification == RedundancyClassification.EXPECTED_OVERLAP:
-            # Expected overlap is not full waste — discount by 80%
-            waste = int(waste * 0.2)
+        # Waste = smaller item's tokens × effective RS.
+        # This makes waste proportional to signal strength, not binary.
+        raw_waste = min(item_a.token_count, item_b.token_count)
+        waste = int(raw_waste * rs_effective)
 
-        # Build human-readable detail
-        detail = _build_detail(item_a, item_b, similarity, classification)
+        detail = _build_detail(item_a, item_b, rs, classification)
 
         findings.append(RedundancyFinding(
             item_a_id=item_a.id,
             item_b_id=item_b.id,
-            similarity_score=similarity,
+            similarity_score=rs,
             classification=classification,
             estimated_waste_tokens=waste,
             detail=detail,
         ))
 
-    # Sort strictly for CI determinism: waste desc, similarity desc, id_a, id_b
+    # Sort for CI determinism: waste desc, similarity desc, id_a, id_b.
     findings.sort(
         key=lambda f: (-f.estimated_waste_tokens, -f.similarity_score, f.item_a_id, f.item_b_id)
     )
+
+    # Findings are the single source of truth for total waste.
+    # Only REDUNDANT_CONTEXT findings count as true waste.
+    final_wasted_tokens = sum(
+        f.estimated_waste_tokens
+        for f in findings
+        if f.classification == RedundancyClassification.REDUNDANT_CONTEXT
+    )
+
     return findings, final_wasted_tokens
 
+
+# ── Detail builder ───────────────────────────────────────────────────────
 
 def _build_detail(
     item_a: ContextItem,
     item_b: ContextItem,
-    similarity: float,
+    rs: float,
     classification: RedundancyClassification,
 ) -> str:
     """Build a human-readable explanation of the finding."""
-    sim_pct = f"{similarity * 100:.0f}%"
+    sim_pct = f"{rs * 100:.0f}%"
 
     if classification == RedundancyClassification.EXPECTED_OVERLAP:
         return (

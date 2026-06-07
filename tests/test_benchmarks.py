@@ -6,20 +6,20 @@ from contextops.api.inspect import inspect_context
 
 SNAPSHOTS = {
     "01_simple_redundancy.json": {
-        "score": 76,
-        "redundancy_penalty": 6.36,
+        "score": 75,
+        "redundancy_penalty": 6.62,
         "structure_penalty": 10.75,
         "top_recommendation_issue": "Redundant context: 100% similarity between 'refunds_doc' and 'customer_service_macro_1' \u2014 redundant context from independent sources"
     },
     "02_semantic_duplicates.json": {
-        "score": 87,
-        "redundancy_penalty": 0.0,
+        "score": 80,
+        "redundancy_penalty": 6.05,
         "structure_penalty": 5.29,
         "top_recommendation_issue": "Retrieval dominance"
     },
     "03_rag_overload.json": {
-        "score": 75,
-        "redundancy_penalty": 4.11,
+        "score": 72,
+        "redundancy_penalty": 6.32,
         "structure_penalty": 17.04,
         "top_recommendation_issue": "Retrieval dominance"
     },
@@ -36,18 +36,19 @@ SNAPSHOTS = {
         "top_recommendation_issue": "Retrieval dominance"
     },
     "06_fake_good_context.json": {
-        "score": 95,
-        "redundancy_penalty": 0.0,
+        "score": 91,
+        "redundancy_penalty": 3.5,
         "structure_penalty": 0.0,
-        "top_recommendation_issue": None
+        "top_recommendation_issue": "Redundant context: 13% similarity between 'system_prompt' and 'message_0' \u2014 redundant context from independent sources"
     },
     "07_instruction_conflict.json": {
-        "score": 91,
-        "redundancy_penalty": 0.0,
+        "score": 83,
+        "redundancy_penalty": 8.04,
         "structure_penalty": 7.16,
         "top_recommendation_issue": "Retrieval dominance"
     }
 }
+
 
 
 def test_benchmark_snapshots() -> None:

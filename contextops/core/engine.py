@@ -139,25 +139,28 @@ def _calc_redundancy_penalty(
     """
     Redundancy penalty (0–30 pts).
 
+    Findings are the SINGLE SOURCE OF TRUTH for waste.
+    The token_breakdown.wasted_tokens value is set from findings by the
+    analyze_redundancy() function, so both penalty and UI display are
+    always in sync — no split-brain possible.
+
     Formula:
-        (waste_penalty_ratio × 0.6 + similarity_cluster_score × 0.4) × 30
+        (waste_penalty_ratio × 0.6 + cluster_score × 0.4) × 30
 
-    - waste_penalty_ratio: exponentially mapped from final_wasted_tokens
-    - similarity_cluster_score: proportion of items involved in redundancy
-
-    Signal contract: reads only redundancy analyzer outputs (wasted_tokens, findings).
+    Signal contract: reads only from findings list and token_breakdown.wasted_tokens.
     Must NOT read density_signal or any structural analyzer output.
     """
-    wasted = token_breakdown.wasted_tokens
+    wasted = token_breakdown.wasted_tokens  # set from findings, single source of truth
     if wasted == 0:
         return 0.0
 
+    # Exponential penalty curve — same input always same output (deterministic)
     waste_penalty_ratio = 1 - math.exp(-0.001 * wasted)
 
-    # Cluster score: what fraction of items are involved in redundancy?
+    # Cluster score: what fraction of items are involved in REDUNDANT_CONTEXT findings?
     involved_ids: set[str] = set()
     for f in findings:
-        if f.classification != RedundancyClassification.EXPECTED_OVERLAP:
+        if f.classification == RedundancyClassification.REDUNDANT_CONTEXT:
             involved_ids.add(f.item_a_id)
             involved_ids.add(f.item_b_id)
 
