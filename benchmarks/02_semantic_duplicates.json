@@ -1,0 +1,26 @@
+{
+  "name": "02_semantic_duplicates",
+  "description": "KNOWN BLIND SPOT: Paraphrased chunks with exact same meaning but different words. Jaccard fails here.",
+  "input": {
+    "system": "You are a financial advisor bot.",
+    "messages": [
+      {"role": "user", "content": "How much did the startup raise?"}
+    ],
+    "chunks": [
+      {
+        "content": "The burgeoning tech startup successfully secured $1.5 million in early stage seed funding from venture capitalists.",
+        "source": "news_article_a"
+      },
+      {
+        "content": "A sum of 1.5M dollars was raised by the new tech company during their initial seed round backed by VC firms.",
+        "source": "news_article_b"
+      }
+    ],
+    "memory": [],
+    "tools": []
+  },
+  "expected_signals": [],
+  "unexpected_signals": [
+    "REDUNDANT_CONTEXT"
+  ]
+}

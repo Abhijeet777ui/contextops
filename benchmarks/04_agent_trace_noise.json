@@ -1,0 +1,20 @@
+{
+  "name": "04_agent_trace_noise",
+  "description": "Tool outputs dominating the context window.",
+  "input": {
+    "system": "You are a database agent.",
+    "messages": [
+      {"role": "user", "content": "Fetch all users."},
+      {"role": "assistant", "content": "", "tool_calls": [{"name": "query_db", "arguments": "SELECT * FROM users"}]}
+    ],
+    "chunks": [],
+    "memory": [],
+    "tools": [
+      {"name": "query_db", "result": "id: 1, name: alice\nid: 2, name: bob\nid: 3, name: charlie\nid: 4, name: dave\nid: 5, name: eve\nid: 6, name: frank\nid: 7, name: grace\nid: 8, name: heidi\nid: 9, name: ivan\nid: 10, name: judy\nid: 11, name: mallory\nid: 12, name: oscar\nid: 13, name: peggy\nid: 14, name: trent\nid: 15, name: victor\nid: 16, name: walter\nid: 17, name: zoe\n"}
+    ]
+  },
+  "expected_signals": [
+    "STRUCTURE_IMBALANCE"
+  ],
+  "unexpected_signals": []
+}

@@ -1,0 +1,24 @@
+{
+  "name": "05_structured_data_case",
+  "description": "JSON blobs. Verifies punctuation stripping doesn't completely destroy analysis. Expect NO redundancy.",
+  "input": {
+    "system": "Parse the JSON.",
+    "messages": [],
+    "chunks": [
+      {
+        "content": "{\"user\": \"alice\", \"role\": \"admin\", \"id\": 101}",
+        "source": "api/user_101"
+      },
+      {
+        "content": "{\"user\": \"bob\", \"role\": \"member\", \"id\": 102}",
+        "source": "api/user_102"
+      }
+    ],
+    "memory": [],
+    "tools": []
+  },
+  "expected_signals": [],
+  "unexpected_signals": [
+    "REDUNDANT_CONTEXT"
+  ]
+}

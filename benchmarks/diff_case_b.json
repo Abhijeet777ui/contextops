@@ -1,0 +1,37 @@
+{
+  "name": "diff_case_b",
+  "input": {
+    "system": "You are a helpful assistant. You must always be polite and professional. You must always be extremely careful. Make sure you read everything. Never output harmful things. This system prompt is becoming very bloated and will eventually trigger a structure imbalance penalty if I keep typing things like this. Here is even more text to absolutely guarantee that we trigger the threshold. We need more than 30 percent system tokens for strict mode to penalize us.",
+    "messages": [
+      {"role": "user", "content": "What is the refund policy?"}
+    ],
+    "chunks": [
+      {
+        "content": "Refund Policy: Premium subscriptions can be refunded within 30 days of purchase. To request a refund, contact support@example.com. Refunds are processed within 5-7 business days.",
+        "source": "support_docs/refund_policy_1.md"
+      },
+      {
+        "content": "Our return policy for physical goods is 14 days. Software cannot be returned.",
+        "source": "support_docs/physical_returns.md"
+      },
+      {
+        "content": "Shipping times vary by region. Standard shipping is 3-5 days. Expedited is 1-2 days.",
+        "source": "support_docs/shipping.md"
+      },
+      {
+        "content": "To contact support, call 1-800-555-0199 or use the chat widget.",
+        "source": "support_docs/contact.md"
+      },
+      {
+        "content": "We accept Visa, Mastercard, American Express, and PayPal.",
+        "source": "support_docs/payment.md"
+      },
+      {
+        "content": "International shipping has custom fees applied depending on the destination country.",
+        "source": "support_docs/international.md"
+      }
+    ],
+    "memory": [],
+    "tools": []
+  }
+}

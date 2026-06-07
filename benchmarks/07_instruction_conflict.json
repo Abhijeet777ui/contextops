@@ -1,0 +1,22 @@
+{
+  "name": "07_instruction_conflict",
+  "description": "KNOWN BLIND SPOT: Instruction vs content conflict. System says 'be concise', chunks are extremely verbose. Redundancy is low, but prompt conflict exists. ContextOps cannot distinguish 'bad content' from 'conflicting instructions'.",
+  "input": {
+    "system": "You are a summarizing bot. Be as concise, short, and brief as possible. Give one sentence answers.",
+    "messages": [
+      {"role": "user", "content": "Explain quantum computing."}
+    ],
+    "chunks": [
+      {
+        "content": "Quantum computing is a rapidly-emerging technology that harnesses the laws of quantum mechanics to solve problems too complex for classical computers. These machines are very different from the classical computers that have been around for more than half a century. Classical computers rely on bits that can either be 0 or 1. Quantum computers use quantum bits, or qubits. Qubits can represent a 1 or a 0, or they can represent both 1 and 0 at the same time through a property known as superposition.",
+        "source": "wiki"
+      }
+    ],
+    "memory": [],
+    "tools": []
+  },
+  "expected_signals": [],
+  "unexpected_signals": [
+    "REDUNDANT_CONTEXT"
+  ]
+}

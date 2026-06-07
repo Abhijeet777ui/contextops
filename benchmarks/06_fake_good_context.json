@@ -1,0 +1,25 @@
+{
+  "name": "06_fake_good_context",
+  "description": "The Truth Test: Diverse, non-overlapping chunks that are completely irrelevant to the prompt. Expected score is high, exposing the fact that this tool measures structural density, not semantic usefulness.",
+  "input": {
+    "system": "You are a coding assistant. You must be very careful to follow all the instructions provided by the user. You will answer truthfully and explain the thought process behind each step you take in your coding solutions. Please remember to adhere to the formatting guidelines strictly.",
+    "messages": [
+      {"role": "user", "content": "How do I reverse a string in Python? I need a detailed explanation of the logic, the time complexity, and alternative approaches using both slicing and loops."}
+    ],
+    "chunks": [
+      {"content": "The French Revolution began in 1789.", "source": "history_1"},
+      {"content": "Photosynthesis is the process by which plants convert light energy.", "source": "bio_1"},
+      {"content": "A black hole is a region of spacetime where gravity is so strong that nothing can escape.", "source": "astro_1"},
+      {"content": "The recipe for chocolate chip cookies requires flour, sugar, and chocolate.", "source": "cooking_1"},
+      {"content": "Mount Everest is the highest mountain above sea level.", "source": "geo_1"}
+    ],
+    "memory": [],
+    "tools": []
+  },
+  "expected_signals": [],
+  "unexpected_signals": [
+    "REDUNDANT_CONTEXT",
+    "STRUCTURE_IMBALANCE",
+    "BOILERPLATE"
+  ]
+}

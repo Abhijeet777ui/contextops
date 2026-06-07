@@ -1,0 +1,29 @@
+{
+  "name": "03_rag_overload",
+  "description": "Massive retrieval dominance with some overlapping segments.",
+  "input": {
+    "system": "Answer user queries.",
+    "messages": [
+      {"role": "user", "content": "Tell me about pandas dataframes."}
+    ],
+    "chunks": [
+      {"content": "A pandas DataFrame is a 2-dimensional labeled data structure with columns of potentially different types.", "source": "docs/pandas_1"},
+      {"content": "You can think of a DataFrame as a spreadsheet or SQL table.", "source": "docs/pandas_2"},
+      {"content": "It is generally the most commonly used pandas object.", "source": "docs/pandas_3"},
+      {"content": "DataFrame accepts many different kinds of input: Dict of 1D ndarrays, lists, dicts, or Series.", "source": "docs/pandas_4"},
+      {"content": "2-D size-mutable, potentially heterogeneous tabular data.", "source": "docs/pandas_5"},
+      {"content": "Data structure also contains labeled axes (rows and columns).", "source": "docs/pandas_6"},
+      {"content": "Arithmetic operations align on both row and column labels.", "source": "docs/pandas_7"},
+      {"content": "Can be thought of as a dict-like container for Series objects.", "source": "docs/pandas_8"},
+      {"content": "A pandas DataFrame is a 2-dimensional labeled data structure with columns.", "source": "blog/pandas_intro"},
+      {"content": "You can think of a DataFrame as a spreadsheet.", "source": "blog/pandas_tips"}
+    ],
+    "memory": [],
+    "tools": []
+  },
+  "expected_signals": [
+    "STRUCTURE_IMBALANCE",
+    "REDUNDANT_CONTEXT"
+  ],
+  "unexpected_signals": []
+}

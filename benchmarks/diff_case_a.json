@@ -1,0 +1,21 @@
+{
+  "name": "diff_case_a",
+  "input": {
+    "system": "You are a helpful assistant. You must always be polite and professional.",
+    "messages": [
+      {"role": "user", "content": "What is the refund policy?"}
+    ],
+    "chunks": [
+      {
+        "content": "Refund Policy: Premium subscriptions can be refunded within 30 days of purchase. To request a refund, contact support@example.com. Refunds are processed within 5-7 business days.",
+        "source": "refunds_doc"
+      },
+      {
+        "content": "Refund Policy: Premium subscriptions can be refunded within 30 days of purchase. To request a refund, contact support@example.com. Refunds are processed within 5-7 business days.",
+        "source": "customer_service_macro_1"
+      }
+    ],
+    "memory": [],
+    "tools": []
+  }
+}
