@@ -2,7 +2,7 @@
 
 **The deterministic context linter for LLM applications.**
 
-[![PyPI version](https://img.shields.io/pypi/v/contextops.svg)](https://pypi.org/project/contextops/)
+[![PyPI version](https://img.shields.io/pypi/v/contextops.svg)](https://pypi.org/project/contextops/) 
 [![Python](https://img.shields.io/pypi/pyversions/contextops.svg)](https://pypi.org/project/contextops/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://img.shields.io/badge/CI-stable-brightgreen.svg)](STABILITY.md)
