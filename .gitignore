@@ -39,3 +39,9 @@ benchmarks/chaos/*.json
 
 # Project Context
 context.md
+
+# Experiments
+experiments/
+
+# Paper draft (not for public repo)
+paper/

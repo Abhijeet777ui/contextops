@@ -37,7 +37,7 @@ RS_MINIMUM: float = 0.12
 
 # Short texts need at least this many tokens to produce a full-weight RS.
 # Below this, the length weight dampens the signal proportionally.
-RS_LENGTH_NORMALIZER: int = 12
+RS_LENGTH_NORMALIZER: int = 6
 
 # N-gram window for per-pair N-gram overlap. Smaller than the old 8/12/16
 # global scan so short sentences (4–7 words) are still captured.
@@ -313,7 +313,7 @@ def analyze_redundancy(bundle: ContextBundle) -> tuple[list[RedundancyFinding], 
         # Waste = smaller item's tokens × effective RS.
         # This makes waste proportional to signal strength, not binary.
         raw_waste = min(item_a.token_count, item_b.token_count)
-        waste = int(raw_waste * rs_effective)
+        waste = max(1, int(raw_waste * rs_effective)) if raw_waste > 0 else 0
 
         detail = _build_detail(item_a, item_b, rs, classification)
 

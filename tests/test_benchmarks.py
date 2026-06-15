@@ -18,8 +18,8 @@ SNAPSHOTS = {
         "top_recommendation_issue": "Retrieval dominance"
     },
     "03_rag_overload.json": {
-        "score": 72,
-        "redundancy_penalty": 6.32,
+        "score": 70,
+        "redundancy_penalty": 8.46,
         "structure_penalty": 17.04,
         "top_recommendation_issue": "Retrieval dominance"
     },
@@ -36,8 +36,8 @@ SNAPSHOTS = {
         "top_recommendation_issue": "Retrieval dominance"
     },
     "06_fake_good_context.json": {
-        "score": 91,
-        "redundancy_penalty": 3.5,
+        "score": 88,
+        "redundancy_penalty": 6.95,
         "structure_penalty": 0.0,
         "top_recommendation_issue": "Redundant context: 13% similarity between 'system_prompt' and 'message_0' \u2014 redundant context from independent sources"
     },

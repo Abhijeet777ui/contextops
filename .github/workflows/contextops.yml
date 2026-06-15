@@ -1,0 +1,31 @@
+name: ContextOps CI/CD Guardrail
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  context-health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install the ContextOps package
+        pip install .
+        # In a real project, you would also install your application dependencies here
+        
+    - name: Run ContextOps Pipeline Health Check
+      run: |
+        # This script returns an exit code of 1 if the Context Health Score drops below the threshold
+        python experiments/exp6_ci_cd_demo.py
