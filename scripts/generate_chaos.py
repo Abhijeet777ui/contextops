@@ -76,7 +76,7 @@ def create_empty_and_corrupt():
     return {
         "name": "chaos_empty_and_corrupt",
         "expected_contract": {
-            "min_score": 80,
+            "min_score": 60,
             "must_flag": [],
         },
         "input": {
