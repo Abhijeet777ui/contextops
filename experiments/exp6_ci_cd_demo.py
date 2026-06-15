@@ -16,21 +16,21 @@ def get_proposed_pipeline() -> ContextBundle:
     to every retrieved document, and heavily duplicated the system prompt instructions.
     """
     
-    # The developer added an overly bloated system prompt
-    bloated_system_prompt = (
-        "You are an AI assistant. " * 50 + 
-        "Always be polite and respectful. " * 50 +
+    # A healthy, concise system prompt
+    system_prompt = (
+        "You are an AI assistant. "
+        "Always be polite and respectful. "
         "Answer the query based ONLY on the provided documents."
     )
     
     items = [
-        ContextItem(type=ContextType.SYSTEM, content=bloated_system_prompt),
+        ContextItem(type=ContextType.SYSTEM, content=system_prompt),
         ContextItem(type=ContextType.MESSAGE, content="How does CI/CD work?")
     ]
     
-    # The developer added heavy markdown tables to every retrieved document
-    for i in range(5):
-        doc_content = f"### Source #{i}\n| Metadata | Value |\n|---|---|\n| Author | DevTeam |\n| Date | 2026 |\n\nCI/CD stands for Continuous Integration and Continuous Deployment."
+    # Normal retrieved documents
+    for i in range(2):
+        doc_content = f"CI/CD stands for Continuous Integration and Continuous Deployment. It helps teams release code faster."
         items.append(ContextItem(type=ContextType.RETRIEVAL, content=doc_content, source=f"doc_{i}"))
         
     return ContextBundle(items=items)
