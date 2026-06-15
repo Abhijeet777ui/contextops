@@ -41,7 +41,8 @@ benchmarks/chaos/*.json
 context.md
 
 # Experiments
-experiments/
+experiments/*
+!experiments/exp6_ci_cd_demo.py
 
 # Paper draft (not for public repo)
 paper/
