@@ -34,6 +34,22 @@ ContextOps gives you this visibility. It runs in your testing pipeline, scores e
 
 ---
 
+## The ContextBench Leaderboard
+
+The **[ContextBench Leaderboard](https://Abhijeet777ui.github.io/contextops/)** is the definitive benchmark for evaluating LLM context optimization architectures. It tests optimizers across 1,500 enterprise RAG payloads and scores them using a weighted formula: **50% Quality + 35% Compression + 15% Latency**.
+
+To keep the competition honest, there is a hard **Quality Floor Gate**. If your optimizer destroys the context so badly that the ContextOps score drops below 78, you are instantly disqualified. You cannot win on compression alone.
+
+### How to Submit
+Submission is completely automated via GitHub Actions:
+1. Write a Python function `def optimize_context(context: dict) -> dict:` in a public GitHub repository.
+2. Open a new **Issue** in this repository titled `Submission: [Your Team Name]`.
+3. Put the link to your public repository in the issue body.
+
+Our automated harness will clone your code, run it against ContextBench, enforce the quality gates, generate a ContextOps Roast, and automatically push your score to the live leaderboard.
+
+---
+
 ## Quick Start
 
 ```bash
