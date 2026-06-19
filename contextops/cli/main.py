@@ -30,6 +30,7 @@ def _build_config(
     system_max_ratio: float | None,
     memory_max_ratio: float | None,
     tool_max_ratio: float | None,
+    roast: bool = False,
 ) -> ContextOpsConfig:
     if config_file:
         config = ContextOpsConfig.from_file(config_file)
@@ -54,6 +55,10 @@ def _build_config(
     if has_override:
         config.mode = "custom"
 
+    # CLI --roast flag always wins over config file
+    if roast:
+        config.roast_enabled = True
+
     return config
 
 
@@ -74,6 +79,7 @@ def cli() -> None:
 @click.option("--memory-max-ratio", type=float, help="Override memory max ratio")
 @click.option("--tool-max-ratio", type=float, help="Override tool max ratio")
 @click.option("--explain", is_flag=True, help="Show detailed reasoning for the penalties (Top Score Drivers)")
+@click.option("--roast", is_flag=True, default=False, help="Enable roast mode: score-band commentary alongside analysis")
 def inspect(
     file: str | None,
     json_output: bool,
@@ -84,6 +90,7 @@ def inspect(
     memory_max_ratio: float | None,
     tool_max_ratio: float | None,
     explain: bool,
+    roast: bool,
 ) -> None:
     """Analyze a context file and display results.
 
@@ -92,7 +99,7 @@ def inspect(
     - Structured dict with system/messages/chunks/memory/tools keys
     """
     cfg = _build_config(
-        config, retrieval_max_ratio, system_max_ratio, memory_max_ratio, tool_max_ratio
+        config, retrieval_max_ratio, system_max_ratio, memory_max_ratio, tool_max_ratio, roast
     )
 
     raw_input: dict | list
@@ -119,6 +126,7 @@ def inspect(
 @click.option("--memory-max-ratio", type=float, help="Override memory max ratio")
 @click.option("--tool-max-ratio", type=float, help="Override tool max ratio")
 @click.option("--explain", is_flag=True, help="Show detailed reasoning for the penalties (Top Score Drivers)")
+@click.option("--roast", is_flag=True, default=False, help="Enable roast mode: score-band commentary alongside analysis")
 def check(
     file: str,
     min_score: int,
@@ -130,6 +138,7 @@ def check(
     memory_max_ratio: float | None,
     tool_max_ratio: float | None,
     explain: bool,
+    roast: bool,
 ) -> None:
     """CI mode: fail if context score is below threshold.
 
@@ -140,7 +149,7 @@ def check(
         contextops check context.json --min-score 70
     """
     cfg = _build_config(
-        config, retrieval_max_ratio, system_max_ratio, memory_max_ratio, tool_max_ratio
+        config, retrieval_max_ratio, system_max_ratio, memory_max_ratio, tool_max_ratio, roast
     )
 
     raw_input = _load_file(file)
@@ -169,10 +178,13 @@ def check(
 
 @cli.command()
 @click.option("--json-output", is_flag=True, help="Output raw JSON")
-def demo(json_output: bool) -> None:
+@click.option("--roast", is_flag=True, default=True, help="Enable roast mode (default: on for demo)")
+def demo(json_output: bool, roast: bool) -> None:
     """Run analysis on a built-in demo context that shows the wow moment."""
     raw_input = _get_demo_context()
-    result = inspect_context(raw_input)
+    cfg = ContextOpsConfig.default()
+    cfg.roast_enabled = roast
+    result = inspect_context(raw_input, config=cfg)
     output = render(result, use_json=json_output, explain=False)
     _safe_echo(output)
 

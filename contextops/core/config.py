@@ -22,6 +22,14 @@ class ContextOpsConfig:
     memory_max_ratio: float = 0.50
     tool_max_ratio: float = 0.60
     
+    # Opt-in flag to enable LSH/MinHash semantic paraphrase detection
+    strict_semantic: bool = False
+
+    # Roast mode — off by default (enterprise-safe).
+    # When enabled, CLI and JSON output include score-band commentary.
+    # Explicitly excluded from the determinism contract (random per-run).
+    roast_enabled: bool = False
+    
     # "strict" means default thresholds are used (standardized score).
     # "custom" means user has overridden thresholds.
     mode: str = "strict"
@@ -48,6 +56,15 @@ class ContextOpsConfig:
         if "tool_max_ratio" in data:
             config.tool_max_ratio = float(data["tool_max_ratio"])
             has_custom = True
+            
+        if "strict_semantic" in data:
+            config.strict_semantic = bool(data["strict_semantic"])
+            has_custom = True
+
+        if "roast_enabled" in data:
+            config.roast_enabled = bool(data["roast_enabled"])
+            # Note: roast_enabled does not set has_custom — it's a UI preference,
+            # not a scoring threshold change.
             
         if has_custom:
             config.mode = "custom"

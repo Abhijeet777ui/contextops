@@ -20,7 +20,7 @@ def test_rs_exact_match_is_near_one() -> None:
     long_content = "This is a detailed refund policy document stating that all refunds take five business days."
     item_a = ContextItem(type=ContextType.RETRIEVAL, content=long_content, source="a.md", token_count=18)
     item_b = ContextItem(type=ContextType.RETRIEVAL, content=long_content, source="b.md", token_count=18)
-    rs = _compute_rs(item_a, item_b)
+    rs, _ = _compute_rs(item_a, item_b)
     assert rs > 0.9, f"Exact match RS for long text should be near 1.0, got {rs}"
 
 
@@ -28,7 +28,7 @@ def test_rs_completely_different_is_near_zero() -> None:
     """RS between unrelated items should be very low."""
     item_a = ContextItem(type=ContextType.RETRIEVAL, content="Quantum physics governs subatomic particles.", source="a.md", token_count=7)
     item_b = ContextItem(type=ContextType.RETRIEVAL, content="Refunds take 5 business days.", source="b.md", token_count=7)
-    rs = _compute_rs(item_a, item_b)
+    rs, _ = _compute_rs(item_a, item_b)
     assert rs < 0.2, f"Unrelated items RS should be near 0, got {rs}"
 
 
@@ -41,8 +41,8 @@ def test_rs_short_text_is_length_weighted() -> None:
     long_a = ContextItem(type=ContextType.RETRIEVAL, content="Refunds are typically processed within five business days of approval.", source="a.md", token_count=12)
     long_b = ContextItem(type=ContextType.RETRIEVAL, content="Refunds are typically processed within five business days of approval.", source="b.md", token_count=12)
 
-    rs_short = _compute_rs(short_a, short_b)
-    rs_long = _compute_rs(long_a, long_b)
+    rs_short, _ = _compute_rs(short_a, short_b)
+    rs_long, _ = _compute_rs(long_a, long_b)
     assert rs_short < rs_long, f"Short RS ({rs_short}) should be < long RS ({rs_long})"
 
 

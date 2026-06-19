@@ -64,7 +64,7 @@ def analyze_structure(bundle: ContextBundle, config: ContextOpsConfig | None = N
     findings: list[StructureFinding] = []
     total_tokens = bundle.total_tokens
 
-    if total_tokens == 0:
+    if total_tokens == 0 or bundle.item_count <= 1:
         return findings
 
     # Calculate ratios per type

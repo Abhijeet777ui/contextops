@@ -4,25 +4,33 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/contextops.svg)](https://pypi.org/project/contextops/) 
 [![Python](https://img.shields.io/pypi/pyversions/contextops.svg)](https://pypi.org/project/contextops/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Sustainable Use](https://img.shields.io/badge/License-Sustainable_Use-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-stable-brightgreen.svg)](STABILITY.md)
 
-ContextOps analyzes the context fed into your LLM and tells you what's broken — redundant chunks, wasted tokens, structural imbalance — with a **deterministic 0–100 score** and actionable fixes.
+ContextOps analyzes the context data you send to your LLM and tells you what is broken. It detects redundant information, wasted tokens, and structural imbalances, providing a deterministic 0-100 score and actionable fixes.
 
-Think of it as **ESLint for your LLM prompts**.
+Think of it as a spell-checker for your AI prompts.
 
 ---
 
 ## Why ContextOps?
 
-Most LLM applications blindly stuff context into the prompt window. This leads to:
+Most AI applications blindly stuff data into the prompt window. This leads to:
 
-- 💸 **Wasted spend** — paying for redundant tokens that don't improve output
-- 🔁 **Silent regressions** — a "small RAG change" floods the context with duplicates
-- 🏗️ **Structural drift** — retrieval chunks slowly dominate the entire prompt
-- 🎯 **No visibility** — teams have no way to measure context quality in CI
+- Wasted spend: paying for redundant tokens that do not improve the AI's output.
+- Silent regressions: a small change in search logic floods the prompt with duplicates.
+- Structural drift: retrieved documents slowly take over the entire prompt, hiding the actual instructions.
+- No visibility: developers have no way to measure context quality in automated testing.
 
-ContextOps gives you that visibility. It runs in your CI pipeline, scores every context payload, and fails the build if quality degrades.
+ContextOps gives you this visibility. It runs in your testing pipeline, scores every context payload, and fails the build if quality drops.
+
+---
+
+## What is New in v0.3.0
+
+- **The Roast Engine**: Enable the `--roast` flag on the CLI to get brutally honest, score-band commentary on your context quality. It will tell you exactly how bad (or good) your context really is.
+- **ContextBench**: We have introduced ContextBench, a suite of 1,500 real-world enterprise context payloads to test and calibrate scoring algorithms.
+- **JSON Output**: The roast commentary is now included in the raw JSON output for easy integration into dashboards or leaderboards.
 
 ---
 
@@ -35,7 +43,7 @@ pip install contextops
 ### See it in action
 
 ```bash
-# Run the built-in demo — instant "wow moment"
+# Run the built-in demo to see a live analysis, complete with the Roast Engine
 contextops demo
 ```
 
@@ -45,13 +53,16 @@ contextops demo
 # Full analysis with rich terminal output
 contextops inspect context.json
 
-# CI mode: fail if score drops below threshold
+# Add the roast flag for honest commentary
+contextops inspect context.json --roast
+
+# CI mode: fail if the score drops below a threshold
 contextops check context.json --min-score 70
 
-# Compare two snapshots for regressions
+# Compare two snapshots to find regressions
 contextops diff before.json after.json
 
-# JSON output for dashboards and automation
+# JSON output for automation
 contextops inspect context.json --json-output
 ```
 
@@ -72,70 +83,51 @@ result = inspect_context({
 print(f"Score: {result.score}/100")
 print(f"Wasted tokens: {result.token_breakdown.wasted_tokens}")
 for rec in result.recommendations:
-    print(f"  → {rec.fix}")
+    print(f"  -> {rec.fix}")
+```
+
+---
+
+## LangChain Integration
+
+ContextOps plugs into any LangChain chain with a single line. We use explicit injection rather than hidden global patches, so you always know exactly where ContextOps is running.
+
+```bash
+pip install contextops langchain-core
+```
+
+```python
+from contextops import ContextOps
+
+# Attach to any chain
+chain = chain.with_config({
+    "callbacks": [ContextOps.auto()]
+})
+
+result = chain.invoke({"question": "What is the refund policy?"})
+```
+
+Output is printed automatically before the LLM execution begins. You can also configure it to warn or block execution if the score is too low:
+
+```python
+# Block execution entirely if context quality is below 70
+ContextOps.auto(mode="block", min_score=70)
 ```
 
 ---
 
 ## What It Measures
 
-ContextOps computes a **0–100 Context Score** from four independent penalty dimensions:
+ContextOps computes a 0-100 Context Score based on four independent penalties:
 
 | Dimension | What It Detects | Max Penalty |
 |---|---|---|
-| **Redundancy** | Duplicate / near-duplicate chunks (N-gram + Jaccard) | 30 pts |
-| **Density** | Wasted tokens from structural bloat | 30 pts |
-| **Structure** | Imbalanced type distribution (e.g., retrieval > 70%) | 20 pts |
-| **Concentration** | Source dominance or highly imbalanced chunk distribution | 20 pts |
+| **Redundancy** | Duplicate or near-duplicate chunks of text. | 30 pts |
+| **Density** | Wasted tokens from structural bloat and formatting. | 30 pts |
+| **Structure** | Imbalanced data distribution (e.g., retrieval taking up 80% of the prompt). | 20 pts |
+| **Concentration** | Over-reliance on a single document or source. | 20 pts |
 
-```
-Context Score = 100 - (Redundancy + Density + Structure + Concentration)
-```
-
-Every penalty maps to a **specific finding** with **token savings** and an **actionable fix**.
-
----
-
-## CI / CD Integration
-
-### GitHub Actions
-
-```yaml
-name: Context Quality Gate
-
-on: [pull_request]
-
-jobs:
-  context-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install contextops
-
-      - name: Check context quality
-        run: contextops check prompts/context.json --min-score 75
-```
-
-### Exit Codes
-
-| Code | Meaning |
-|---|---|
-| `0` | Score meets threshold — build passes |
-| `1` | Score below threshold — build fails |
-
-### Regression Detection
-
-```bash
-# Save a baseline
-contextops inspect prompts/v1.json --json-output > baseline.json
-
-# After changes, compare
-contextops diff baseline.json prompts/v2.json
-```
+Every penalty maps to a specific finding with token savings and an actionable fix.
 
 ---
 
@@ -161,78 +153,22 @@ ContextOps accepts a JSON file with any combination of these keys:
 }
 ```
 
-It also accepts raw OpenAI message lists:
-
-```json
-[
-    {"role": "system", "content": "You are helpful."},
-    {"role": "user", "content": "What is the refund policy?"}
-]
-```
-
----
-
-## CLI Reference
-
-| Command | Purpose |
-|---|---|
-| `contextops inspect <file>` | Analyze and display results |
-| `contextops check <file> --min-score N` | CI gate with exit codes |
-| `contextops demo` | Built-in demo context |
-| `contextops stability <file>` | Deterministic stability report |
-| `contextops diff <file_a> <file_b>` | Compare two snapshots |
-
-### Flags
-
-| Flag | Commands | Purpose |
-|---|---|---|
-| `--json-output` | inspect, check | Machine-readable JSON output |
-| `--min-score N` | check | Minimum passing score (0–100) |
-| `--model <name>` | inspect, check | Target model for cost estimation |
-| `--explain` | inspect, check | Show detailed penalty reasoning |
-| `--config <file>` | inspect, check | Custom threshold config file |
-
----
-
-## Design Principles
-
-1. **Deterministic** — Same input → same output. Always. No randomness, no embeddings, no LLM calls.
-2. **Explainable** — Every penalty maps to a real issue with a token count and a fix.
-3. **CI-native** — Designed for pipelines first. Exit codes, JSON output, threshold gating.
-4. **Zero network** — Runs entirely offline. No API keys, no external services.
+It also accepts raw OpenAI message lists directly.
 
 ---
 
 ## Stability Contract
 
-ContextOps ships with a formal [Stability Contract](STABILITY.md) that guarantees:
+ContextOps ships with a formal Stability Contract (STABILITY.md) that guarantees:
 
-- **Scoring determinism** — same input always produces the same score
-- **Schema stability** — JSON output fields never change within a major version
-- **Performance bounds** — sub-second for payloads up to 50,000 tokens
-- **Semantic versioning** — scoring formula changes require a major version bump
+- Scoring determinism: the same input always produces the same score.
+- Schema stability: JSON output fields never change within a major version.
+- Semantic versioning: any changes to the scoring formula require a major version bump.
 
-This contract exists so teams can trust ContextOps in production CI pipelines.
-
----
-
-## Development
-
-```bash
-# Clone and install in dev mode
-git clone https://github.com/Abhijeet777/contextops.git
-cd contextops
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Run chaos stress tests
-pytest tests/test_chaos.py -v
-```
+This ensures you can trust ContextOps in your production testing pipelines.
 
 ---
 
 ## License
 
-[MIT](LICENSE)
+Sustainable Use License (see LICENSE file for details).

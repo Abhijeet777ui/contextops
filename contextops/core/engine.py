@@ -34,6 +34,7 @@ from contextops.core.models import (
     StructureFinding,
     TokenBreakdown,
 )
+from contextops.core.roast import get_roast
 
 
 def analyze(
@@ -60,7 +61,7 @@ def analyze(
     token_breakdown = analyze_tokens(bundle, model=model, cost_per_1k=cost_per_1k)
 
     # ── Step 2: Redundancy detection ────────────────────────────────
-    redundancy_findings, final_wasted_tokens = analyze_redundancy(bundle)
+    redundancy_findings, final_wasted_tokens = analyze_redundancy(bundle, strict_semantic=config.strict_semantic)
     token_breakdown.wasted_tokens = final_wasted_tokens
 
     # ── Step 3: Structure analysis ──────────────────────────────────
@@ -78,11 +79,11 @@ def analyze(
     
     # ── Step 5: Generate recommendations ────────────────────────────
     recommendations = _generate_recommendations(
-        bundle, redundancy_findings, structure_findings, score_breakdown
+        bundle, redundancy_findings, structure_findings, score_breakdown, density_signal
     )
 
     # ── Step 6: Assemble result ─────────────────────────────────────
-    return AnalysisResult(
+    result = AnalysisResult(
         score=score_breakdown.score,
         mode=config.mode,
         config_version=config.version,
@@ -95,9 +96,15 @@ def analyze(
         metadata={
             "item_count": bundle.item_count,
             "model": model,
-            "version": "0.1.0",
+            "version": "0.3.0",
         },
     )
+
+    # ── Step 7: Attach roast (opt-in, non-deterministic) ────────────
+    if config.roast_enabled:
+        result.roast = get_roast(score=result.score, breakdown=score_breakdown)
+
+    return result
 
 # ── Scoring ─────────────────────────────────────────────────────────────
 
@@ -185,6 +192,14 @@ def _calc_density_penalty(density_signal: DensitySignal) -> float:
     Must NOT read wasted_tokens or any redundancy analyzer output.
     """
     penalty = density_signal.total_density_signal * 30.0
+    
+    # Padding anomaly penalty (empirically calibrated in Exp11/Exp10)
+    # Natural benign baseline divergence is ~0.005; adversarial attack divergence is ~0.027.
+    # Threshold of 0.02 sits cleanly in the gap between the two distributions.
+    if density_signal.system_divergence > 0.02:
+        # Scale penalty: divergence of 0.027 -> ~3.5 bonus pts; divergence of 0.10 -> ~10 pts.
+        penalty += (density_signal.system_divergence * 130.0)
+        
     return min(30.0, round(penalty, 2))
 
 
@@ -279,6 +294,7 @@ def _generate_recommendations(
     redundancy_findings: list[RedundancyFinding],
     structure_findings: list[StructureFinding],
     score_breakdown: ScoreBreakdown,
+    density_signal: DensitySignal | None = None,
 ) -> list[Recommendation]:
     """
     Generate actionable recommendations from findings.
@@ -351,6 +367,16 @@ def _generate_recommendations(
             token_savings=0,  # structure fixes don't always save tokens directly
             fix=fix,
             severity=struct_finding.severity,
+        ))
+
+    # ── Density Anomaly recommendations ─────────────────────────────
+    if density_signal and density_signal.system_divergence > 0.02:
+        recs.append(Recommendation(
+            issue=f"Suspicious Threshold Padding detected (divergence: {density_signal.system_divergence:.4f})",
+            impact_score=round(density_signal.system_divergence * 130.0, 1),
+            token_savings=0,
+            fix="Adversarial Threshold Padding detected: retrieval context has structurally anomalous density divergence relative to the system prompt. Inspect retrieval chunks for malicious padding.",
+            severity=FindingSeverity.HIGH,
         ))
 
     # Sort by impact (highest first)

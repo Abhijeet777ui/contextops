@@ -11,7 +11,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from contextops.core.roast import RoastResult
 
 
 class ContextType(str, Enum):
@@ -124,6 +127,7 @@ class DensitySignal:
     whitespace_waste: float       # 0.0 to 1.0
     entropy_compression: float    # 0.0 to 1.0
     total_density_signal: float   # 0.0 to 1.0
+    system_divergence: float = 0.0 # 0.0 to 1.0
 
 
 @dataclass
@@ -177,6 +181,9 @@ class AnalysisResult:
     config_version: str = "1.0"
     density_signal: DensitySignal | None = None
     density_effect: Literal["shadow", "active"] = "shadow"
+    # Roast is random per-run — explicitly non-deterministic.
+    # Only populated when roast_enabled=True in config.
+    roast: "RoastResult | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON output."""
@@ -241,5 +248,8 @@ class AnalysisResult:
                 "total_density_signal": round(self.density_signal.total_density_signal, 3),
             }
             res["density_effect"] = self.density_effect
+
+        if self.roast is not None:
+            res["roast"] = self.roast.to_dict()
             
         return res

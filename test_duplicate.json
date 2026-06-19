@@ -1,0 +1,12 @@
+[
+  {"role": "system", "content": "You are a refund support assistant."},
+
+  {"role": "user", "content": "How long does refund take?"},
+  {"role": "assistant", "content": "Refunds take 5 business days."},
+
+  {"role": "user", "content": "When will I get my refund?"},
+  {"role": "assistant", "content": "Refunds are processed in 5 days."},
+
+  {"role": "user", "content": "Refund time please?"},
+  {"role": "assistant", "content": "It usually takes around five business days for refunds."}
+]

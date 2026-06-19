@@ -99,6 +99,19 @@ def render(result: AnalysisResult, use_json: bool = False, explain: bool = False
     lines.append(f"  {C.BOLD}Context Score:{C.RESET}  {color}{C.BOLD} {score} / 100 {C.RESET}  {C.DIM}({label}){C.RESET}")
     lines.append("")
 
+    # ── Roast (opt-in) ───────────────────────────────────────────────
+    if result.roast is not None:
+        lines.append(f"  {C.BOLD}{C.YELLOW}{'─' * 48}{C.RESET}")
+        lines.append(f"  {C.BOLD}{C.YELLOW}  \"{result.roast.overall}\"{C.RESET}")
+        if result.roast.dimensions:
+            for dr in result.roast.dimensions:
+                dim_color = C.RED if dr.severity == "high" else C.YELLOW
+                lines.append(
+                    f"  {dim_color}  [{dr.dimension.upper()}] {dr.roast}{C.RESET}"
+                )
+        lines.append(f"  {C.BOLD}{C.YELLOW}{'─' * 48}{C.RESET}")
+        lines.append("")
+
     # ── Score Breakdown ─────────────────────────────────────────────
     bd = data["score_breakdown"]
     lines.append(f"  {C.BOLD}Score Breakdown:{C.RESET}")

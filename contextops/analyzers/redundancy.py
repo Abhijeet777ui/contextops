@@ -18,6 +18,7 @@ RS(i,j) = (0.6 × Jaccard(tokens) + 0.3 × ngram_overlap(N=4) + 0.1 × char_over
 
 from __future__ import annotations
 
+import hashlib
 import re
 import string
 
@@ -137,19 +138,54 @@ def _compute_char_overlap(text_a: str, text_b: str) -> float:
     return len(chars_a & chars_b) / len(chars_a | chars_b)
 
 
-def _compute_rs(item_a: ContextItem, item_b: ContextItem) -> float:
+def _minhash_signature(text: str, num_hashes: int = 50) -> list[int]:
     """
-    Compute the unified Redundancy Signal RS(i,j) ∈ [0, 1].
+    Compute a deterministic MinHash signature using 3-character shingling.
+    This captures morphological structure to survive LLM paraphrasing.
+    """
+    text = text.lower().strip()
+    
+    # CAVEAT: Skip shingling entirely for short chunks (< 50 chars) 
+    # to avoid false positive collisions on common English trigrams.
+    if len(text) < 50:
+        return []
+        
+    # Generate 3-character shingles
+    shingles = set(text[i:i+3] for i in range(len(text) - 2))
+    if not shingles:
+        return []
+    
+    sig = []
+    for i in range(num_hashes):
+        min_h = float('inf')
+        for s in shingles:
+            # Deterministic hash: MD5 of salt + shingle
+            h = int(hashlib.md5(f"{i}_{s}".encode()).hexdigest()[:8], 16)
+            if h < min_h:
+                min_h = h
+        sig.append(min_h)
+    return sig
 
-    RS = (0.6 × Jaccard(tokens) + 0.3 × ngram_overlap + 0.1 × char_overlap)
-         × length_weight
+def _minhash_similarity(sig_a: list[int], sig_b: list[int]) -> float:
+    """Compute Jaccard similarity estimate from MinHash signatures."""
+    if not sig_a or not sig_b:
+        return 0.0
+    matches = sum(1 for a, b in zip(sig_a, sig_b) if a == b)
+    return matches / len(sig_a)
 
-    length_weight = min(1.0, min_tokens / RS_LENGTH_NORMALIZER)
+def _compute_rs(
+    item_a: ContextItem,
+    item_b: ContextItem,
+    strict_semantic: bool = False
+) -> tuple[float, bool]:
+    """
+    Compute the unified Redundancy Signal RS(i,j) in [0, 1].
 
-    Signal contract:
-      - Reads ONLY from item content and tokens.
-      - No embeddings, no external APIs, no difflib.
-      - Fully deterministic.
+    Returns:
+        (rs, minhash_dominant): rs is the signal value; minhash_dominant
+        is True when strict-semantic MinHash was the primary driver of RS.
+        This allows the caller to bypass the adjacency modifier for semantically
+        flagged pairs.
     """
     tokens_a = _get_ordered_tokens(item_a.content)
     tokens_b = _get_ordered_tokens(item_b.content)
@@ -161,13 +197,32 @@ def _compute_rs(item_a: ContextItem, item_b: ContextItem) -> float:
     ngram = _compute_ngram_overlap(tokens_a, tokens_b)
     char_overlap = _compute_char_overlap(item_a.content, item_b.content)
 
-    # Length-aware weight: short text is sparse — downscale to avoid false positives.
-    # Use actual word count (always available) as the length measure.
     min_len = min(len(tokens_a), len(tokens_b))
     length_weight = min(1.0, min_len / RS_LENGTH_NORMALIZER)
 
     rs = (0.6 * jaccard + 0.3 * ngram + 0.1 * char_overlap) * length_weight
-    return round(min(1.0, rs), 4)
+    minhash_dominant = False
+    
+    # If opt-in strict semantic mode is enabled, evaluate MinHash similarity
+    # to catch adversarial paraphrasing (Semantic DoS bypass).
+    if strict_semantic:
+        sig_a = _minhash_signature(item_a.content)
+        sig_b = _minhash_signature(item_b.content)
+        
+        # Only compare if both items were long enough to generate signatures
+        if sig_a and sig_b:
+            mh_sim = _minhash_similarity(sig_a, sig_b)
+            # 3-char shingling needs a lower threshold multiplier than exact word match.
+            # We scale the mh_sim up slightly so ~40% shingle overlap triggers a high signal.
+            scaled_mh_sim = min(1.0, mh_sim * 2.5)
+            minhash_rs = scaled_mh_sim * length_weight
+            if minhash_rs > rs:
+                # MinHash dominates — flag this so the caller can force REDUNDANT_CONTEXT
+                # classification regardless of source adjacency.
+                rs = minhash_rs
+                minhash_dominant = True
+
+    return round(min(1.0, rs), 4), minhash_dominant
 
 
 # ── Classification helpers ───────────────────────────────────────────────
@@ -236,7 +291,7 @@ def _get_rs_modifier(classification: RedundancyClassification) -> float:
 
 # ── Main entry point ─────────────────────────────────────────────────────
 
-def analyze_redundancy(bundle: ContextBundle) -> tuple[list[RedundancyFinding], int]:
+def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> tuple[list[RedundancyFinding], int]:
     """
     Detect redundant pairs in a ContextBundle using the unified RS signal.
 
@@ -300,13 +355,19 @@ def analyze_redundancy(bundle: ContextBundle) -> tuple[list[RedundancyFinding], 
             continue
 
         # Compute the unified RS signal.
-        rs = _compute_rs(item_a, item_b)
+        rs, minhash_dominant = _compute_rs(item_a, item_b, strict_semantic=strict_semantic)
 
         # Below the minimum RS floor → not a meaningful overlap.
         if rs < RS_MINIMUM:
             continue
 
-        classification = _classify(item_a, item_b)
+        # If MinHash drove the signal (strict-semantic mode), force REDUNDANT_CONTEXT
+        # classification regardless of source adjacency — the semantic signal overrides
+        # the structural adjacency heuristic.
+        if minhash_dominant:
+            classification = RedundancyClassification.REDUNDANT_CONTEXT
+        else:
+            classification = _classify(item_a, item_b)
         modifier = _get_rs_modifier(classification)
         rs_effective = round(rs * modifier, 4)
 

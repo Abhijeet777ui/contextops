@@ -1,21 +1,85 @@
-MIT License
+# Sustainable Use License
 
 Copyright (c) 2026 Abhijeet Baug
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## Acceptance
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+By using the software, you agree to all of the terms and conditions below.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+## Copyright License
+
+The copyright holder (Abhijeet Baug, "Licensor") grants you a non-exclusive,
+royalty-free, worldwide, non-sublicensable, non-transferable license to use,
+copy, distribute, and create derivative works of the software, in each case
+subject to the limitations set out below.
+
+## Limitations
+
+1. **Internal / Non-Commercial Use Only.** You may use or modify the software
+   only for your own internal business operations, personal use, or
+   non-commercial purposes.
+
+2. **No Resale or Commercial Hosting.** You may not provide the software, or
+   any derivative work of the software, to third parties as a hosted or
+   managed service, or as part of a commercial product or service offering,
+   where the core value delivered to those third parties is substantially
+   derived from the software's functionality.
+
+3. **No Charge for Distribution.** You may distribute or make the software
+   (or a derivative work) available to others only if you do so free of
+   charge, and only for non-commercial purposes.
+
+4. **No Removal of Notices.** You must not remove or obscure any licensing,
+   copyright, or other notices contained in the software.
+
+## Contributions
+
+Any contribution intentionally submitted by you for inclusion in the
+software shall be under the terms and conditions of this license, without
+any additional terms or conditions, unless explicitly agreed otherwise in
+writing with the Licensor.
+
+## Patents
+
+This license does not grant you any right in any patent held by the
+Licensor. No patent license is granted by implication, estoppel, or
+otherwise.
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of the software
+from you also gets a copy of these terms.
+
+## No Other Rights
+
+These terms do not imply any licenses other than those expressly granted
+in this license.
+
+## Termination
+
+If you use the software in violation of these terms, such use is not
+licensed, and your license will automatically terminate. If the Licensor
+provides you with a notice of your violation, and you cease all violation
+of this license no later than 30 days after you receive that notice,
+your license will be reinstated retroactively. However, if you violate
+these terms after such reinstatement, any additional violation of these
+terms will cause your license to terminate automatically and permanently.
+
+## No Liability
+
+As far as the law allows, the software comes "as is," without any
+warranty or condition, and the Licensor will not be liable to you for any
+damages arising out of these terms or the use or nature of the software,
+under any kind of legal claim.
+
+## Definitions
+
+"Software" means the present software and any associated documentation
+made available by the Licensor under these terms, as may be updated by
+the Licensor from time to time.
+
+"You" means the individual or entity agreeing to these terms.
+
+"Licensor" means Abhijeet Baug.
+
+

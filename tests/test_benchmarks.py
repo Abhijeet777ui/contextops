@@ -18,7 +18,7 @@ SNAPSHOTS = {
         "top_recommendation_issue": "Retrieval dominance"
     },
     "03_rag_overload.json": {
-        "score": 70,
+        "score": 63,
         "redundancy_penalty": 8.46,
         "structure_penalty": 17.04,
         "top_recommendation_issue": "Retrieval dominance"
@@ -30,7 +30,7 @@ SNAPSHOTS = {
         "top_recommendation_issue": "System prompt bloat"
     },
     "05_structured_data_case.json": {
-        "score": 74,
+        "score": 70,
         "redundancy_penalty": 0.0,
         "structure_penalty": 15.0,
         "top_recommendation_issue": "Retrieval dominance"
@@ -42,10 +42,10 @@ SNAPSHOTS = {
         "top_recommendation_issue": "Redundant context: 13% similarity between 'system_prompt' and 'message_0' \u2014 redundant context from independent sources"
     },
     "07_instruction_conflict.json": {
-        "score": 83,
+        "score": 78,
         "redundancy_penalty": 8.04,
         "structure_penalty": 7.16,
-        "top_recommendation_issue": "Retrieval dominance"
+        "top_recommendation_issue": "Suspicious Threshold Padding detected (divergence: 0.0350)"
     }
 }
 

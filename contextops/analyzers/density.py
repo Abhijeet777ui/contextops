@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from contextops.core.models import ContextBundle, DensitySignal
+from contextops.core.models import ContextBundle, DensitySignal, ContextType
 
 
 def normalize_density_input(text: str) -> list[str]:
@@ -138,9 +138,20 @@ def compute_density_signal(bundle: ContextBundle) -> DensitySignal:
     # Weights: w_fo=0.4, w_wl=0.2, w_ec=0.4
     total_signal = (0.4 * fo) + (0.2 * wl) + (0.4 * ec)
 
+    # Calculate padding anomaly divergence
+    system_items = [item.content for item in bundle.items if item.type == ContextType.SYSTEM]
+    retrieval_items = [item.content for item in bundle.items if item.type == ContextType.RETRIEVAL]
+    
+    system_divergence = 0.0
+    if system_items and retrieval_items:
+        sys_ec = _calc_entropy_compression("\n".join(system_items))
+        ret_ec = _calc_entropy_compression("\n".join(retrieval_items))
+        system_divergence = abs(sys_ec - ret_ec)
+
     return DensitySignal(
         format_overhead=round(fo, 3),
         whitespace_waste=round(wl, 3),
         entropy_compression=round(ec, 3),
         total_density_signal=round(total_signal, 3),
+        system_divergence=round(system_divergence, 3),
     )
