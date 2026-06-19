@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd leaderboard/website
-          npm ci
+          npm install
       - name: Build project
         run: |
           cd leaderboard/website
