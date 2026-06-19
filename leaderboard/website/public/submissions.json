@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ref-contextops-advisor",
+    "name": "ContextOps Advisor (Baseline)",
+    "repo_url": "https://github.com/Abhijeet777ui/contextops",
+    "track": "clean",
+    "quality_score": 98.0,
+    "compression_ratio": 0.35,
+    "latency_ms": 150,
+    "final_score": 70.08,
+    "roast": "This context is practically sparkling. Did you use an industrial sandblaster or just ContextOps?",
+    "is_reference": true
+  },
+  {
+    "id": "ref-naive-truncator",
+    "name": "Naive Truncator (Baseline)",
+    "repo_url": "https://github.com/Abhijeet777ui/contextops",
+    "track": "clean",
+    "quality_score": 80.0,
+    "compression_ratio": 0.40,
+    "latency_ms": 12,
+    "final_score": 61.0,
+    "roast": "Wow, you just cut off the last 60% of the prompt. I guess if you close your eyes, the errors can't hurt you.",
+    "is_reference": true
+  },
+  {
+    "id": "ref-noop",
+    "name": "No-op (Baseline)",
+    "repo_url": "https://github.com/Abhijeet777ui/contextops",
+    "track": "clean",
+    "quality_score": 85.9,
+    "compression_ratio": 1.0,
+    "latency_ms": 5,
+    "final_score": 42.95,
+    "roast": "You did literally nothing. This is the participation trophy of context optimization.",
+    "is_reference": true
+  },
+  {
+    "id": "sub-team-alpha",
+    "name": "Team Alpha Optimizer",
+    "repo_url": "https://github.com/example/alpha-opt",
+    "track": "clean",
+    "quality_score": 92.5,
+    "compression_ratio": 0.45,
+    "latency_ms": 320,
+    "final_score": 64.08,
+    "roast": "Not bad. You managed to compress it without completely lobotomizing the LLM.",
+    "is_reference": false
+  },
+  {
+    "id": "sub-token-crusher",
+    "name": "TokenCrusher v2",
+    "repo_url": "https://github.com/example/token-crusher",
+    "track": "clean",
+    "quality_score": 81.0,
+    "compression_ratio": 0.20,
+    "latency_ms": 850,
+    "final_score": 66.85,
+    "roast": "You squeezed this context so hard it's gasping for air, but hey, it's cheap.",
+    "is_reference": false
+  }
+]

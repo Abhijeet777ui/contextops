@@ -1,0 +1,41 @@
+name: Evaluate Submission
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.issue.title, 'Submission:')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Parse Issue
+      id: parse
+      run: |
+        # In a real setup, we would parse the repo URL and team name from the issue body
+        echo "REPO_URL=https://github.com/example/submission" >> $GITHUB_ENV
+        echo "TEAM_NAME=ExampleTeam" >> $GITHUB_ENV
+        
+    - name: Clone Submission
+      run: |
+        git clone ${{ env.REPO_URL }} submission_code
+        cp submission_code/submission.py leaderboard/harness/
+        
+    - name: Run Evaluator
+      run: |
+        cd leaderboard/harness
+        python evaluate.py --repo ${{ env.REPO_URL }} --name ${{ env.TEAM_NAME }} > result.log
+        
+    - name: Update Leaderboard
+      run: |
+        # Parse result.log and append to leaderboard/data/submissions.json
+        # Then commit back to the repo
+        echo "Updating JSON and committing..."
