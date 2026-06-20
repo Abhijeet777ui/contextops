@@ -34,7 +34,7 @@ from contextops.core.models import (
 
 # Minimum RS to produce a finding (replaces hard threshold cliff).
 # A continuous signal: RS = 0.12 means "very mild overlap", RS = 1.0 = exact copy.
-RS_MINIMUM: float = 0.12
+RS_MINIMUM: float = 0.20
 
 # Short texts need at least this many tokens to produce a full-weight RS.
 # Below this, the length weight dampens the signal proportionally.
@@ -138,7 +138,7 @@ def _compute_char_overlap(text_a: str, text_b: str) -> float:
     return len(chars_a & chars_b) / len(chars_a | chars_b)
 
 
-def _minhash_signature(text: str, num_hashes: int = 50) -> list[int]:
+def _minhash_signature(text: str, num_hashes: int = 90) -> list[int]:
     """
     Compute a deterministic MinHash signature using 3-character shingling.
     This captures morphological structure to survive LLM paraphrasing.
@@ -309,43 +309,47 @@ def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> 
     findings: list[RedundancyFinding] = []
     items = bundle.items
 
-    # Determine which pairs to compare.
-    if len(items) <= MAX_PAIRWISE_ITEMS:
-        pairs_to_check = [
-            (i, j)
-            for i in range(len(items))
-            for j in range(i + 1, len(items))
-        ]
+    # ── 1. Candidate Generation (O(N)) ──────────────────────────────────────
+    candidates = set()
+
+    if strict_semantic:
+        # EXACT TOKEN INVERTED INDEX PATH
+        # Guarantees 100% exact Jaccard recall for security-sensitive paths.
+        inverted_index: dict[str, list[int]] = {}
+        for item_idx, item in enumerate(items):
+            tokens = _tokenize_words(item.content)
+            for token in tokens:
+                if token not in inverted_index:
+                    inverted_index[token] = []
+                for matching_idx in inverted_index[token]:
+                    # Keep pairs sorted (lower_idx, higher_idx)
+                    pair = (matching_idx, item_idx) if matching_idx < item_idx else (item_idx, matching_idx)
+                    candidates.add(pair)
+                inverted_index[token].append(item_idx)
     else:
-        # Hash-bucket fast path: group items by stripped content hash.
-        from hashlib import md5
-        buckets: dict[str, list[int]] = {}
-        for idx, item in enumerate(items):
-            h = md5(item.content.strip().lower().encode()).hexdigest()[:16]
-            buckets.setdefault(h, []).append(idx)
+        # FAST LSH PATH
+        # 30 bands of 3 hashes for ~98% recall at 50% true Jaccard similarity.
+        signatures = [_minhash_signature(item.content, num_hashes=90) for item in items]
+        for band_idx in range(30):
+            bucket: dict[tuple[int, ...], list[int]] = {}
+            for item_idx, sig in enumerate(signatures):
+                if not sig:
+                    continue  # Skip ultra-short items
+                band_tuple = tuple(sig[band_idx * 3 : (band_idx + 1) * 3])
+                if band_tuple in bucket:
+                    for matching_idx in bucket[band_tuple]:
+                        pair = (matching_idx, item_idx) if matching_idx < item_idx else (item_idx, matching_idx)
+                        candidates.add(pair)
+                bucket.setdefault(band_tuple, []).append(item_idx)
 
-        pairs_to_check = []
-        # Always compare within same hash bucket (exact/near duplicates)
-        for indices in buckets.values():
-            for a_pos in range(len(indices)):
-                for b_pos in range(a_pos + 1, len(indices)):
-                    pairs_to_check.append((indices[a_pos], indices[b_pos]))
+    # Always add adjacent items (sliding window fallback)
+    for i in range(len(items) - 1):
+        candidates.add((i, i + 1))
 
-        # Add a bounded sample of cross-bucket pairs for fuzzy detection.
-        bucket_keys = list(buckets.keys())
-        cross_pairs_added = 0
-        max_cross_pairs = MAX_PAIRWISE_ITEMS * 10
-        for bi in range(len(bucket_keys)):
-            if cross_pairs_added >= max_cross_pairs:
-                break
-            for bj in range(bi + 1, len(bucket_keys)):
-                if cross_pairs_added >= max_cross_pairs:
-                    break
-                pairs_to_check.append(
-                    (buckets[bucket_keys[bi]][0], buckets[bucket_keys[bj]][0])
-                )
-                cross_pairs_added += 1
+    # Sort for deterministic evaluation order
+    pairs_to_check = sorted(list(candidates))
 
+    # ── 2. Pairwise Evaluation ─────────────────────────────────────────────
     for i_idx, j_idx in pairs_to_check:
         item_a = items[i_idx]
         item_b = items[j_idx]
