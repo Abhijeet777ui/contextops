@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contextops"
-version = "0.3.0"
+version = "0.3.1"
 description = "Deterministic context linter for LLM applications — analyze, score, and optimize your LLM context payloads."
 readme = "README.md"
 license = { file = "LICENSE" }
