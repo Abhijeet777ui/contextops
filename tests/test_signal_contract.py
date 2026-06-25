@@ -166,18 +166,21 @@ class TestRuleC_DensityPenaltySource:
             entropy_compression=0.1,
             total_density_signal=0.22,  # weighted
         )
-        penalty = _calc_density_penalty(signal)
+        from contextops.core.config import ContextOpsConfig
+        penalty = _calc_density_penalty(signal, ContextOpsConfig.default())
         assert 0.0 <= penalty <= 30.0, "density_penalty must be in range [0, 30]"
 
     def test_density_penalty_zero_for_zero_signal(self):
         """A DensitySignal of all zeros must produce zero penalty."""
         signal = DensitySignal(0.0, 0.0, 0.0, 0.0)
-        assert _calc_density_penalty(signal) == 0.0
+        from contextops.core.config import ContextOpsConfig
+        assert _calc_density_penalty(signal, ContextOpsConfig.default()) == 0.0
 
     def test_density_penalty_max_for_max_signal(self):
         """A DensitySignal of total=1.0 must produce max penalty (30 pts)."""
         signal = DensitySignal(1.0, 1.0, 1.0, 1.0)
-        assert _calc_density_penalty(signal) == 30.0
+        from contextops.core.config import ContextOpsConfig
+        assert _calc_density_penalty(signal, ContextOpsConfig.default()) == 30.0
 
     def test_density_penalty_does_not_accept_token_breakdown(self):
         """

@@ -12,9 +12,6 @@ import tiktoken
 from contextops.core.models import ContextBundle, TokenBreakdown
 
 
-# ── Pricing per 1K input tokens (USD) — GPT-4o as default reference ─────
-# Users can override this; these are just sensible defaults for estimation.
-DEFAULT_COST_PER_1K_TOKENS: float = 0.005  # $5 per 1M input tokens
 
 
 def count_tokens(text: str, model: str = "gpt-4o") -> int:
@@ -40,7 +37,6 @@ def count_tokens(text: str, model: str = "gpt-4o") -> int:
 def analyze_tokens(
     bundle: ContextBundle,
     model: str = "gpt-4o",
-    cost_per_1k: float = DEFAULT_COST_PER_1K_TOKENS,
 ) -> TokenBreakdown:
     """
     Count tokens for every item in the bundle and produce a breakdown.
@@ -50,7 +46,6 @@ def analyze_tokens(
     Args:
         bundle: The context bundle to analyze.
         model: Model name for tiktoken encoding selection.
-        cost_per_1k: Cost per 1,000 input tokens in USD.
 
     Returns:
         A TokenBreakdown with totals, per-type distribution, and cost estimate.
@@ -66,11 +61,9 @@ def analyze_tokens(
         type_key = item.type.value
         by_type[type_key] = by_type.get(type_key, 0) + tokens
 
-    cost = (total / 1000) * cost_per_1k
-
     return TokenBreakdown(
         total_tokens=total,
         by_type=by_type,
-        estimated_cost_usd=cost,
+        estimated_reduction_pct=0.0,  # filled in later by engine
         wasted_tokens=0,  # filled in later by the engine after redundancy analysis
     )

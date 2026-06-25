@@ -10,6 +10,44 @@ from pathlib import Path
 from typing import Any
 
 
+_PROFILE_PRESETS = {
+    "generic": {
+        "retrieval_max_ratio": 0.70,
+        "system_max_ratio": 0.50,
+        "memory_max_ratio": 0.50,
+        "tool_max_ratio": 0.60,
+        "concentration_weight": 1.0,
+    },
+    "rag": {
+        "retrieval_max_ratio": 0.95,
+        "system_max_ratio": 0.40,
+        "memory_max_ratio": 0.20,
+        "tool_max_ratio": 0.30,
+        "concentration_weight": 0.3,
+    },
+    "agent": {
+        "retrieval_max_ratio": 0.50,
+        "system_max_ratio": 0.40,
+        "memory_max_ratio": 0.40,
+        "tool_max_ratio": 0.90,
+        "concentration_weight": 0.7,
+    },
+    "chatbot": {
+        "retrieval_max_ratio": 0.40,
+        "system_max_ratio": 0.50,
+        "memory_max_ratio": 0.85,
+        "tool_max_ratio": 0.30,
+        "concentration_weight": 0.6,
+    },
+    "toolchain": {
+        "retrieval_max_ratio": 0.50,
+        "system_max_ratio": 0.40,
+        "memory_max_ratio": 0.30,
+        "tool_max_ratio": 0.95,
+        "concentration_weight": 0.5,
+    },
+}
+
 @dataclass
 class ContextOpsConfig:
     """
@@ -17,10 +55,22 @@ class ContextOpsConfig:
     
     Thresholds represent the maximum allowed ratio of context for a given type.
     """
+    context_profile: str = "generic"
+    
     retrieval_max_ratio: float = 0.70
     system_max_ratio: float = 0.50
     memory_max_ratio: float = 0.50
     tool_max_ratio: float = 0.60
+    concentration_weight: float = 1.0
+
+    # RS threshold configuration (Phase 0 Bug 4 fix — no longer hardcoded in redundancy.py).
+    # rs_minimum: findings below this RS score are silently ignored (not noise).
+    # rs_advisory_minimum: findings between advisory and minimum are reported as
+    #   informational-only with zero penalty contribution.
+    # Default of 0.35 is the calibrated value for general technical corpora.
+    # For high-overlap domains (legal, API specs), tune down to ~0.28.
+    rs_minimum: float = 0.35
+    rs_advisory_minimum: float = 0.25
     
     # Opt-in flag to enable LSH/MinHash semantic paraphrase detection
     strict_semantic: bool = False
@@ -36,12 +86,18 @@ class ContextOpsConfig:
     version: str = "1.0"
 
     @classmethod
-    def default(cls) -> ContextOpsConfig:
-        return cls()
+    def default(cls, profile: str = "generic") -> ContextOpsConfig:
+        config = cls(context_profile=profile)
+        if profile in _PROFILE_PRESETS:
+            preset = _PROFILE_PRESETS[profile]
+            for k, v in preset.items():
+                setattr(config, k, v)
+        return config
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ContextOpsConfig:
-        config = cls()
+        profile = data.get("context_profile", "generic")
+        config = cls.default(profile=profile)
         has_custom = False
         
         if "retrieval_max_ratio" in data:
@@ -55,6 +111,15 @@ class ContextOpsConfig:
             has_custom = True
         if "tool_max_ratio" in data:
             config.tool_max_ratio = float(data["tool_max_ratio"])
+            has_custom = True
+        if "concentration_weight" in data:
+            config.concentration_weight = float(data["concentration_weight"])
+            has_custom = True
+        if "rs_minimum" in data:
+            config.rs_minimum = float(data["rs_minimum"])
+            has_custom = True
+        if "rs_advisory_minimum" in data:
+            config.rs_advisory_minimum = float(data["rs_advisory_minimum"])
             has_custom = True
             
         if "strict_semantic" in data:

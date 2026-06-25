@@ -26,11 +26,21 @@ class ContextType(str, Enum):
     MESSAGE = "message"
 
 
+class CIStatus(str, Enum):
+    """Pipeline CI gate status."""
+    PASS = "PASS"
+    WARN = "WARN"
+    FAIL = "FAIL"
+
+
 class RedundancyClassification(str, Enum):
     """How we classify detected overlap between context items."""
-    EXPECTED_OVERLAP = "expected_overlap"       # adjacent chunks, normal RAG behavior
-    REDUNDANT_CONTEXT = "redundant_context"     # unnecessary duplication, real waste
-    BOILERPLATE = "boilerplate"                 # repeated template/instructions
+    EXACT_DUPLICATE    = "exact_duplicate"      # Hash match / RS > 0.95. Hard penalty. Always actionable.
+    NEAR_DUPLICATE     = "near_duplicate"       # RS 0.65–0.95. Soft signal. Includes confidence score.
+    REDUNDANT_CONTEXT  = "redundant_context"    # RS 0.35–0.65 from independent sources. Advisory.
+    TOPIC_OVERLAP      = "topic_overlap"        # Same subject, different content. NEVER penalized.
+    EXPECTED_OVERLAP   = "expected_overlap"     # Adjacent chunks, normal RAG. NEVER penalized.
+    BOILERPLATE        = "boilerplate"          # Repeated instructions. Zero waste contribution.
 
 
 class FindingSeverity(str, Enum):
@@ -97,6 +107,7 @@ class RedundancyFinding:
     similarity_score: float           # 0.0 to 1.0
     classification: RedundancyClassification
     estimated_waste_tokens: int
+    confidence: float = 1.0
     detail: str = ""
 
 
@@ -108,6 +119,7 @@ class StructureFinding:
     actual_ratio: float               # 0.0 to 1.0
     threshold: float                  # the threshold that was exceeded
     severity: FindingSeverity = FindingSeverity.MEDIUM
+    confidence: float = 1.0
 
 
 @dataclass
@@ -118,6 +130,7 @@ class Recommendation:
     token_savings: int                # estimated tokens saved
     fix: str                          # human-readable fix instruction
     severity: FindingSeverity = FindingSeverity.MEDIUM
+    confidence: float = 1.0
 
 
 @dataclass
@@ -158,7 +171,7 @@ class TokenBreakdown:
     """Per-type token distribution."""
     total_tokens: int = 0
     by_type: dict[str, int] = field(default_factory=dict)
-    estimated_cost_usd: float = 0.0
+    estimated_reduction_pct: float = 0.0
     wasted_tokens: int = 0
 
 
@@ -185,10 +198,40 @@ class AnalysisResult:
     # Only populated when roast_enabled=True in config.
     roast: "RoastResult | None" = None
 
+    @property
+    def ci_status(self) -> CIStatus:
+        """
+        Two-Gate CI Status logic.
+        Gate 1: Score Band
+        Gate 2: Hard Stops (severity and exact duplicates)
+        """
+        candidate_status = CIStatus.PASS
+        if self.score < 60:
+            candidate_status = CIStatus.FAIL
+        elif self.score < 80:
+            candidate_status = CIStatus.WARN
+
+        # Hard stops
+        has_critical = any(f.severity == FindingSeverity.CRITICAL for f in self.structure_findings) or \
+                       any(r.severity == FindingSeverity.CRITICAL for r in self.recommendations)
+        has_high = any(f.severity == FindingSeverity.HIGH for f in self.structure_findings) or \
+                   any(r.severity == FindingSeverity.HIGH for r in self.recommendations)
+        has_exact_dup = any(f.classification == RedundancyClassification.EXACT_DUPLICATE for f in self.redundancy_findings)
+        
+        if has_critical or has_exact_dup:
+            return CIStatus.FAIL
+        
+        if has_high and candidate_status == CIStatus.PASS:
+            return CIStatus.WARN
+            
+        return candidate_status
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON output."""
         res = {
+            "schema_version": "2.0",
             "score": self.score,
+            "ci_status": self.ci_status.value,
             "mode": self.mode,
             "config_version": self.config_version,
             "score_breakdown": {
@@ -201,7 +244,7 @@ class AnalysisResult:
             "token_breakdown": {
                 "total_tokens": self.token_breakdown.total_tokens,
                 "by_type": self.token_breakdown.by_type,
-                "estimated_cost_usd": round(self.token_breakdown.estimated_cost_usd, 6),
+                "estimated_reduction_pct": round(self.token_breakdown.estimated_reduction_pct, 1),
                 "wasted_tokens": self.token_breakdown.wasted_tokens,
             },
             "findings": {
@@ -212,6 +255,7 @@ class AnalysisResult:
                         "similarity": round(f.similarity_score, 3),
                         "classification": f.classification.value,
                         "waste_tokens": f.estimated_waste_tokens,
+                        "confidence": f.confidence,
                         "detail": f.detail,
                     }
                     for f in self.redundancy_findings
@@ -223,6 +267,7 @@ class AnalysisResult:
                         "actual_ratio": round(f.actual_ratio, 3),
                         "threshold": f.threshold,
                         "severity": f.severity.value,
+                        "confidence": f.confidence,
                     }
                     for f in self.structure_findings
                 ],
@@ -234,9 +279,18 @@ class AnalysisResult:
                     "token_savings": r.token_savings,
                     "fix": r.fix,
                     "severity": r.severity.value,
+                    "confidence": r.confidence,
                 }
                 for r in self.recommendations
             ],
+            "scope": {
+                "description": "ContextOps measures structural density and redundancy.",
+                "limitations": [
+                    "Does not measure semantic usefulness.",
+                    "Does not guarantee factual correctness.",
+                    "High score does not mean the LLM will answer correctly."
+                ]
+            },
             "metadata": self.metadata,
         }
         

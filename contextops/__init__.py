@@ -34,6 +34,7 @@ class ContextOps:
     def auto(
         mode: str = "log",
         min_score: int = 70,
+        profile: str = "generic",
         debug: bool = False,
         config: Optional[ContextOpsConfig] = None,
     ) -> "ContextOpsCallbackHandler":
@@ -49,9 +50,12 @@ class ContextOps:
                        - "warn":  emits a Python warning if score < min_score.
                        - "block": raises ContextOpsScoreError if score < min_score.
             min_score: Score threshold for "warn" / "block" modes (default: 70).
+            profile:   Architecture profile preset to use (default: "generic").
+                       Options: "generic", "rag", "agent", "chatbot", "toolchain".
             debug:     If True, prints the full context reconstruction payload
                        before the score. Useful for verifying capture is correct.
             config:    Optional ContextOpsConfig to override internal thresholds.
+                       If provided, `profile` is ignored.
 
         Returns:
             ContextOpsCallbackHandler — a LangChain BaseCallbackHandler instance.
@@ -71,6 +75,9 @@ class ContextOps:
         """
         from contextops.integrations.langchain.callback import ContextOpsCallbackHandler
 
+        if config is None:
+            config = ContextOpsConfig.default(profile=profile)
+
         return ContextOpsCallbackHandler(
             mode=mode,
             min_score=min_score,
@@ -82,6 +89,7 @@ class ContextOps:
     def langchain_config(
         mode: str = "log",
         min_score: int = 70,
+        profile: str = "generic",
         debug: bool = False,
         config: Optional[ContextOpsConfig] = None,
     ) -> dict:
@@ -105,6 +113,7 @@ class ContextOps:
                 ContextOps.auto(
                     mode=mode,
                     min_score=min_score,
+                    profile=profile,
                     debug=debug,
                     config=config,
                 )

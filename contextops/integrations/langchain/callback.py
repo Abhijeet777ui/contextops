@@ -382,10 +382,9 @@ class ContextOpsCallbackHandler(BaseCallbackHandler):
         else:
             score_icon = "\u274c"
 
-        # Cost strings
-        cost_per_req = tb.estimated_cost_usd
-        cost_per_1k = cost_per_req * 1000
-        cost_str = f"${cost_per_req:.4f}/req  |  ${cost_per_1k:.2f}/1k requests"
+        # Token reduction strings
+        reduction_pct = tb.estimated_reduction_pct
+        reduction_str = f"{reduction_pct:.1f}% potential context reduction"
 
         # Top issue label
         top_issue = top_rec.issue if top_rec else "No major issues detected"
@@ -398,11 +397,10 @@ class ContextOpsCallbackHandler(BaseCallbackHandler):
         # Layer 2: Diagnosis (the architecture insight)
         print(f"   Diagnosis: {top_issue}")
 
-        # Layer 3: Cost at scale
-        print(f"\n   Cost:    {cost_str}")
+        # Layer 3: Waste and reduction at scale
+        print(f"\n   Waste:   {tb.wasted_tokens} tokens")
         if tb.wasted_tokens > 0:
-            wasted_cost_per_1k = (tb.wasted_tokens / max(1, tb.total_tokens)) * cost_per_1k
-            print(f"   Wasted:  ~{tb.wasted_tokens} tokens  |  ~${wasted_cost_per_1k:.2f}/1k requests wasted")
+            print(f"   Savings: {reduction_str}")
 
         # Layer 4: Penalty axis mini-bars
         r_bar = self._mini_bar(sb.redundancy_penalty, 30)

@@ -13,6 +13,12 @@ Three orthogonal character buckets (exhaustive, non-overlapping):
     syntax_chars    = non-alphanum, non-whitespace (brackets, punctuation, markup)
     whitespace_chars = whitespace   (layout/formatting overhead)
     total_chars = payload + syntax + whitespace  (always sums to 1.0)
+
+Phase 3.3 — Chunk-length log smoothing:
+    The total_density_signal is smoothed by a length factor derived from
+    log(total_chars). Short contexts (~100 chars) are not unfairly rewarded;
+    very long contexts (~50k chars) are not unfairly penalised. The factor is
+    anchored at 10k chars (length_factor = 1.0) and blended 70/30.
 """
 
 from __future__ import annotations
@@ -122,6 +128,19 @@ def compute_density_signal(bundle: ContextBundle) -> DensitySignal:
     Weights (initial): FO=0.4, WL=0.2, EC=0.4
     These are calibrated so typical clean context scores near 0.1–0.3,
     and heavily bloated context scores near 0.6–0.9.
+
+    Phase 3.3 — Chunk-length log smoothing:
+    total_signal is blended with a length factor so that a long, clean corpus
+    (50k chars of well-structured text) is not penalised more than a short noisy
+    one. The length factor is log-normalised to 10k chars (the expected midpoint
+    of a typical LLM context) and blended 70/30 (signal / bonus):
+
+        length_factor = log(1 + total_chars) / log(1 + 10_000)   [clamped 0–1]
+        total_signal  = total_signal * (0.7 + 0.3 * length_factor)
+
+    At 10k chars:  length_factor = 1.0  → no change.
+    At  500 chars: length_factor ≈ 0.56 → signal × 0.87  (slight reduction)
+    At 50k chars:  length_factor = 1.0  (clamped)  → no change.
     """
     if not bundle.items:
         return DensitySignal(0.0, 0.0, 0.0, 0.0)
@@ -138,14 +157,23 @@ def compute_density_signal(bundle: ContextBundle) -> DensitySignal:
     # Weights: w_fo=0.4, w_wl=0.2, w_ec=0.4
     total_signal = (0.4 * fo) + (0.2 * wl) + (0.4 * ec)
 
+    # Phase 3.3 — log-scale chunk-length smoothing.
+    # Anchored at 10_000 chars. Clamped to [0, 1] so very long texts don't
+    # amplify the signal beyond the natural range.
+    total_chars = len(total_text)
+    length_factor = math.log1p(total_chars) / math.log1p(10_000)
+    length_factor = min(1.0, length_factor)
+    total_signal = total_signal * (0.7 + 0.3 * length_factor)
+    total_signal = max(0.0, min(1.0, total_signal))
+
     # Calculate padding anomaly divergence
     system_items = [item.content for item in bundle.items if item.type == ContextType.SYSTEM]
-    retrieval_items = [item.content for item in bundle.items if item.type == ContextType.RETRIEVAL]
-    
+    retrieval_items_content = [item.content for item in bundle.items if item.type == ContextType.RETRIEVAL]
+
     system_divergence = 0.0
-    if system_items and retrieval_items:
+    if system_items and retrieval_items_content:
         sys_ec = _calc_entropy_compression("\n".join(system_items))
-        ret_ec = _calc_entropy_compression("\n".join(retrieval_items))
+        ret_ec = _calc_entropy_compression("\n".join(retrieval_items_content))
         system_divergence = abs(sys_ec - ret_ec)
 
     return DensitySignal(

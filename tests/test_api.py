@@ -129,7 +129,7 @@ class TestResultFields:
         tb = result.token_breakdown
         assert tb.total_tokens > 0
         assert isinstance(tb.by_type, dict)
-        assert tb.estimated_cost_usd >= 0
+        assert tb.estimated_reduction_pct >= 0.0
         assert isinstance(tb.wasted_tokens, int)
 
     def test_no_nan_or_inf(self, result):
@@ -141,7 +141,7 @@ class TestResultFields:
             sb.redundancy_penalty, sb.density_penalty,
             sb.structure_penalty, sb.concentration_penalty,
             sb.total_penalty,
-            tb.total_tokens, tb.wasted_tokens, tb.estimated_cost_usd,
+            tb.total_tokens, tb.wasted_tokens, tb.estimated_reduction_pct,
         ]
         for v in values:
             assert not math.isnan(v), f"NaN found: {v}"

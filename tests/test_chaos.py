@@ -83,7 +83,7 @@ def test_global_invariant_no_nan_inf(filename):
         sb.total_penalty,
         tb.total_tokens,
         tb.wasted_tokens,
-        tb.estimated_cost_usd,
+        tb.estimated_reduction_pct,
     ]
     for v in values:
         assert not math.isnan(v), f"NaN detected: {v}"

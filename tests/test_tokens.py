@@ -11,14 +11,14 @@ If token counting is wrong, every score is wrong.
 Coverage:
   - count_tokens() for various inputs (empty, short, long, unicode)
   - analyze_tokens() side-effects (setting item.token_count)
-  - TokenBreakdown correctness (by_type aggregation, cost math)
+  - TokenBreakdown correctness (by_type aggregation, reduction pct math)
   - Model fallback behavior
   - Edge cases: empty bundles, single items, zero-length content
 """
 
 import pytest
 
-from contextops.analyzers.tokens import count_tokens, analyze_tokens, DEFAULT_COST_PER_1K_TOKENS
+from contextops.analyzers.tokens import count_tokens, analyze_tokens
 from contextops.core.models import ContextBundle, ContextItem, ContextType
 
 
@@ -104,7 +104,7 @@ class TestAnalyzeTokens:
         bundle = ContextBundle(items=[])
         tb = analyze_tokens(bundle)
         assert tb.total_tokens == 0
-        assert tb.estimated_cost_usd == 0.0
+        assert tb.estimated_reduction_pct == 0.0
         assert tb.wasted_tokens == 0
         assert tb.by_type == {}
 
@@ -141,24 +141,13 @@ class TestAnalyzeTokens:
         # Sum of by_type must equal total
         assert sum(tb.by_type.values()) == tb.total_tokens
 
-    def test_cost_calculation(self):
-        """Cost must be (total_tokens / 1000) * cost_per_1k."""
+    def test_reduction_pct_initializes_zero(self):
+        """Reduction pct must initialize to 0.0 before engine assigns waste."""
         bundle = ContextBundle(items=[
-            ContextItem(type=ContextType.SYSTEM, content="x " * 500)
+            ContextItem(type=ContextType.MESSAGE, content="Hello")
         ])
-        cost_per_1k = 0.01
-        tb = analyze_tokens(bundle, cost_per_1k=cost_per_1k)
-        expected_cost = (tb.total_tokens / 1000) * cost_per_1k
-        assert abs(tb.estimated_cost_usd - expected_cost) < 1e-10
-
-    def test_custom_cost_per_1k(self):
-        """Custom cost_per_1k must propagate correctly."""
-        bundle = ContextBundle(items=[
-            ContextItem(type=ContextType.MESSAGE, content="test input")
-        ])
-        tb_cheap = analyze_tokens(bundle, cost_per_1k=0.001)
-        tb_expensive = analyze_tokens(bundle, cost_per_1k=0.1)
-        assert tb_expensive.estimated_cost_usd > tb_cheap.estimated_cost_usd
+        tb = analyze_tokens(bundle)
+        assert tb.estimated_reduction_pct == 0.0
 
     def test_wasted_tokens_default_zero(self):
         """wasted_tokens must always be 0 from analyze_tokens (set later by engine)."""

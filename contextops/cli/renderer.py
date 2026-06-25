@@ -93,6 +93,18 @@ def render(result: AnalysisResult, use_json: bool = False, explain: bool = False
     lines.append(f"{C.BOLD}{C.CYAN}+{'=' * 50}+{C.RESET}")
     lines.append("")
 
+    # ── CI Status ────────────────────────────────────────────────────
+    ci_status = data.get("ci_status", "UNKNOWN")
+    if ci_status == "PASS":
+        ci_color = C.BG_GREEN
+    elif ci_status == "WARN":
+        ci_color = C.BG_YELLOW
+    else:
+        ci_color = C.BG_RED
+    
+    lines.append(f"  {C.BOLD}CI Gate Status:{C.RESET} {ci_color}{C.WHITE}{C.BOLD} {ci_status} {C.RESET}")
+    lines.append("")
+
     # ── Score ────────────────────────────────────────────────────────
     color = _score_color(score)
     label = _score_label(score)
@@ -142,7 +154,7 @@ def render(result: AnalysisResult, use_json: bool = False, explain: bool = False
         lines.append(f"  {C.DIM}Cost Model: ~15 penalty points per 1,000 wasted tokens (capped at 30){C.RESET}")
     lines.append(f"    Total tokens:    {C.BOLD}{tb['total_tokens']:,}{C.RESET}")
     lines.append(f"    Wasted tokens:   {C.RED}{tb['wasted_tokens']:,}{C.RESET}")
-    lines.append(f"    Estimated cost:  ${tb['estimated_cost_usd']:.4f}")
+    lines.append(f"    Potential reduction: {C.GREEN}{tb['estimated_reduction_pct']}%{C.RESET}")
     lines.append("")
 
     if tb["by_type"]:
@@ -181,9 +193,18 @@ def render(result: AnalysisResult, use_json: bool = False, explain: bool = False
             lines.append(f"  {C.DIM}{'-' * 48}{C.RESET}")
 
         for f in redundancy_findings:
-            icon = "[~]" if f["classification"] == "expected_overlap" else "[!]"
+            icon = "[~]" if f["classification"] in ("expected_overlap", "topic_overlap") else "[!]"
+            
+            conf = f.get("confidence", 1.0)
+            if conf >= 0.90:
+                conf_label = f"{C.GREEN}Guaranteed{C.RESET}"
+            elif conf >= 0.65:
+                conf_label = f"{C.YELLOW}Likely{C.RESET}"
+            else:
+                conf_label = f"{C.MAGENTA}Possible{C.RESET}"
+
             lines.append(
-                f"    {icon}  {C.YELLOW}{f['classification'].upper()}{C.RESET}: "
+                f"    {icon}  {C.YELLOW}{f['classification'].upper()}{C.RESET} ({conf_label}): "
                 f"{f['detail']}"
             )
             lines.append(
@@ -267,10 +288,12 @@ def render(result: AnalysisResult, use_json: bool = False, explain: bool = False
     lines.append(f"  {C.DIM}contextops v{data['metadata'].get('version', '0.1.0')} "
                  f"| {data['metadata'].get('item_count', 0)} items analyzed{C.RESET}")
     lines.append("")
-    lines.append(f"  {C.YELLOW}{C.BOLD}LIMITATION:{C.RESET}")
-    lines.append(f"  {C.DIM}This tool measures structural density, not semantic usefulness.{C.RESET}")
-    lines.append(f"  {C.DIM}A high score does not guarantee the LLM has the right facts to answer.{C.RESET}")
-    lines.append("")
+    
+    if "scope" in data:
+        lines.append(f"  {C.YELLOW}{C.BOLD}LIMITATION:{C.RESET}")
+        for lim in data["scope"]["limitations"]:
+            lines.append(f"  {C.DIM}- {lim}{C.RESET}")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -349,8 +372,8 @@ def render_diff(diff: Any) -> str:
                  f"({score_color}{score_sign}{diff.score_delta}{C.RESET})")
     lines.append("")
 
-    # ── Tokens / Cost ───────────────────────────────────────────────
-    lines.append(f"  {C.BOLD}Tokens / Cost{C.RESET}")
+    # ── Tokens / Reduction ───────────────────────────────────────────────
+    lines.append(f"  {C.BOLD}Tokens / Reduction{C.RESET}")
     tok_a = diff.result_a.token_breakdown.total_tokens
     tok_b = diff.result_b.token_breakdown.total_tokens
     tok_color = C.GREEN if diff.token_delta < 0 else (C.RED if diff.token_delta > 0 else C.RESET)
@@ -358,12 +381,12 @@ def render_diff(diff: Any) -> str:
     lines.append(f"  Tokens: {tok_a:,} -> {tok_b:,} "
                  f"({tok_color}{tok_sign}{diff.token_delta:,}{C.RESET})")
                  
-    cost_a = diff.result_a.token_breakdown.estimated_cost_usd
-    cost_b = diff.result_b.token_breakdown.estimated_cost_usd
-    cost_color = C.GREEN if diff.cost_delta < 0 else (C.RED if diff.cost_delta > 0 else C.RESET)
-    cost_sign = "+" if diff.cost_delta > 0 else ""
-    lines.append(f"  Cost: ${cost_a:.4f} -> ${cost_b:.4f} "
-                 f"({cost_color}{cost_sign}${abs(diff.cost_delta):.4f}{C.RESET})")
+    pct_a = diff.result_a.token_breakdown.estimated_reduction_pct
+    pct_b = diff.result_b.token_breakdown.estimated_reduction_pct
+    pct_color = C.RED if diff.reduction_pct_delta < 0 else (C.GREEN if diff.reduction_pct_delta > 0 else C.RESET)
+    pct_sign = "+" if diff.reduction_pct_delta > 0 else ""
+    lines.append(f"  Potential Reduction: {pct_a:.1f}% -> {pct_b:.1f}% "
+                 f"({pct_color}{pct_sign}{diff.reduction_pct_delta:.1f}%{C.RESET})")
     lines.append("")
 
     # ── Structure Changes ───────────────────────────────────────────

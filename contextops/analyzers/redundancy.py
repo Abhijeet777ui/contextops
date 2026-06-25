@@ -32,9 +32,11 @@ from contextops.core.models import (
 
 # ── Constants ────────────────────────────────────────────────────────────
 
-# Minimum RS to produce a finding (replaces hard threshold cliff).
-# A continuous signal: RS = 0.12 means "very mild overlap", RS = 1.0 = exact copy.
-RS_MINIMUM: float = 0.20
+# RS_MINIMUM is now configurable via ContextOpsConfig.rs_minimum.
+# This module-level fallback is used ONLY when no config is provided (e.g., in tests).
+# Do NOT use this constant directly in production code paths — read from config instead.
+_RS_MINIMUM_FALLBACK: float = 0.35
+_RS_ADVISORY_FALLBACK: float = 0.25
 
 # Short texts need at least this many tokens to produce a full-weight RS.
 # Below this, the length weight dampens the signal proportionally.
@@ -76,8 +78,10 @@ SYNONYM_MAP: dict[str, str] = {
 
 # ── Tokenisation helpers ─────────────────────────────────────────────────
 
-def _get_source_base(s: str) -> str:
-    """Strip trailing numeric suffixes to get a canonical source base name."""
+def _get_source_base(s: str | None) -> str:
+    """Extract base source name ignoring chunk suffixes (e.g., 'doc_1.txt' -> 'doc')."""
+    if not s:
+        return ""
     base = re.sub(r'[_\-]?\d+(?:\.[a-zA-Z0-9]+)?$', '', s)
     return base if base else s
 
@@ -136,6 +140,12 @@ def _compute_char_overlap(text_a: str, text_b: str) -> float:
     if not chars_a and not chars_b:
         return 0.0
     return len(chars_a & chars_b) / len(chars_a | chars_b)
+
+
+def _content_hash(text: str) -> str:
+    """MD5 of normalized content for exact duplicate detection."""
+    normalized = " ".join(text.lower().split())
+    return hashlib.md5(normalized.encode()).hexdigest()
 
 
 def _minhash_signature(text: str, num_hashes: int = 90) -> list[int]:
@@ -264,34 +274,58 @@ def _is_boilerplate(item: ContextItem) -> bool:
     return (signal_count / len(words)) > 0.25
 
 
-def _classify(item_a: ContextItem, item_b: ContextItem) -> RedundancyClassification:
+def _classify(item_a: ContextItem, item_b: ContextItem, rs: float) -> RedundancyClassification:
     """
     Classify the type of redundancy between two items.
-
-    Rules (in priority order):
-    1. Adjacent chunks from same source → EXPECTED_OVERLAP
-    2. Both are boilerplate → BOILERPLATE
-    3. Everything else with RS >= RS_MINIMUM → REDUNDANT_CONTEXT
     """
+    if rs > 0.95:
+        return RedundancyClassification.EXACT_DUPLICATE
+
     if _is_adjacent_source(item_a, item_b):
         return RedundancyClassification.EXPECTED_OVERLAP
+
     if _is_boilerplate(item_a) and _is_boilerplate(item_b):
         return RedundancyClassification.BOILERPLATE
+
+    # Topic overlap cluster-pass
+    base_a = _get_source_base(item_a.source)
+    base_b = _get_source_base(item_b.source)
+    if base_a == base_b and item_a.source != item_b.source:
+        if 0.25 <= rs <= 0.50:
+            return RedundancyClassification.TOPIC_OVERLAP
+
+    if rs >= 0.65:
+        return RedundancyClassification.NEAR_DUPLICATE
+
     return RedundancyClassification.REDUNDANT_CONTEXT
 
 
 def _get_rs_modifier(classification: RedundancyClassification) -> float:
     """Return the RS modifier for a given classification."""
-    if classification == RedundancyClassification.BOILERPLATE:
-        return BOILERPLATE_RS_MODIFIER
-    if classification == RedundancyClassification.EXPECTED_OVERLAP:
-        return ADJACENT_RS_MODIFIER
+    if classification in (
+        RedundancyClassification.BOILERPLATE,
+        RedundancyClassification.TOPIC_OVERLAP,
+        RedundancyClassification.EXPECTED_OVERLAP
+    ):
+        return 0.0
+    
+    if classification == RedundancyClassification.NEAR_DUPLICATE:
+        return 0.5
+    
+    if classification == RedundancyClassification.REDUNDANT_CONTEXT:
+        return 0.2
+        
+    # EXACT_DUPLICATE
     return 1.0
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
 
-def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> tuple[list[RedundancyFinding], int]:
+def analyze_redundancy(
+    bundle: ContextBundle,
+    strict_semantic: bool = False,
+    config: "ContextOpsConfig | None" = None,
+) -> tuple[list[RedundancyFinding], int]:
     """
     Detect redundant pairs in a ContextBundle using the unified RS signal.
 
@@ -302,15 +336,39 @@ def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> 
       - Human-readable output (issue + fix)
       - Waste token count (fed back into engine for scoring)
 
+    Args:
+        bundle: The context bundle to analyze.
+        strict_semantic: If True, use MinHash for paraphrase detection.
+        config: Optional config. If provided, config.rs_minimum overrides the
+                module fallback. This allows per-deployment threshold tuning.
+
     Returns:
         tuple of (list[RedundancyFinding], final_wasted_tokens)
         where final_wasted_tokens is the sum of REDUNDANT_CONTEXT finding waste.
     """
+    # Resolve thresholds: config takes priority over module fallback.
+    # (Phase 0 Bug 4 fix — RS_MINIMUM is no longer a hardcoded constant)
+    rs_minimum = getattr(config, "rs_minimum", _RS_MINIMUM_FALLBACK)
+
     findings: list[RedundancyFinding] = []
     items = bundle.items
 
     # ── 1. Candidate Generation (O(N)) ──────────────────────────────────────
     candidates = set()
+    exact_duplicate_pairs = set()
+
+    # Hash-based exact duplicate pre-pass
+    hash_buckets = {}
+    for item_idx, item in enumerate(items):
+        if not item.content.strip():
+            continue
+        h = _content_hash(item.content)
+        if h in hash_buckets:
+            for matching_idx in hash_buckets[h]:
+                pair = (matching_idx, item_idx) if matching_idx < item_idx else (item_idx, matching_idx)
+                exact_duplicate_pairs.add(pair)
+                candidates.add(pair)
+        hash_buckets.setdefault(h, []).append(item_idx)
 
     if strict_semantic:
         # EXACT TOKEN INVERTED INDEX PATH
@@ -358,28 +416,50 @@ def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> 
         if not item_a.content.strip() or not item_b.content.strip():
             continue
 
-        # Compute the unified RS signal.
-        rs, minhash_dominant = _compute_rs(item_a, item_b, strict_semantic=strict_semantic)
+        is_exact = (i_idx, j_idx) in exact_duplicate_pairs
 
-        # Below the minimum RS floor → not a meaningful overlap.
-        if rs < RS_MINIMUM:
-            continue
-
-        # If MinHash drove the signal (strict-semantic mode), force REDUNDANT_CONTEXT
-        # classification regardless of source adjacency — the semantic signal overrides
-        # the structural adjacency heuristic.
-        if minhash_dominant:
-            classification = RedundancyClassification.REDUNDANT_CONTEXT
+        if is_exact:
+            rs = 1.0
+            minhash_dominant = False
+            classification = RedundancyClassification.EXACT_DUPLICATE
         else:
-            classification = _classify(item_a, item_b)
+            # Compute the unified RS signal.
+            rs, minhash_dominant = _compute_rs(item_a, item_b, strict_semantic=strict_semantic)
+
+            # Below the minimum RS floor → not a meaningful overlap.
+            # Topic overlap might be as low as 0.25, so we need to classify to check.
+            classification = _classify(item_a, item_b, rs)
+
+            # Ignore noise unless it's explicitly a topic overlap
+            if rs < rs_minimum and classification != RedundancyClassification.TOPIC_OVERLAP:
+                continue
+
+            # If MinHash drove the signal (strict-semantic mode), force REDUNDANT_CONTEXT
+            # classification regardless of source adjacency — the semantic signal overrides
+            # the structural adjacency heuristic.
+            if minhash_dominant:
+                classification = RedundancyClassification.REDUNDANT_CONTEXT
+
         modifier = _get_rs_modifier(classification)
         rs_effective = round(rs * modifier, 4)
 
         # Waste = smaller item's tokens × effective RS.
         # This makes waste proportional to signal strength, not binary.
         raw_waste = min(item_a.token_count, item_b.token_count)
-        waste = max(1, int(raw_waste * rs_effective)) if raw_waste > 0 else 0
+        waste = int(raw_waste * rs_effective) if raw_waste > 0 else 0
 
+        # Compute confidence
+        if classification == RedundancyClassification.EXACT_DUPLICATE:
+            confidence = 1.0
+        elif classification == RedundancyClassification.NEAR_DUPLICATE:
+            confidence = rs
+        elif classification == RedundancyClassification.REDUNDANT_CONTEXT:
+            confidence = rs * 0.7
+        elif classification == RedundancyClassification.TOPIC_OVERLAP:
+            confidence = rs * 0.5
+        else:
+            confidence = 1.0
+            
         detail = _build_detail(item_a, item_b, rs, classification)
 
         findings.append(RedundancyFinding(
@@ -388,6 +468,7 @@ def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> 
             similarity_score=rs,
             classification=classification,
             estimated_waste_tokens=waste,
+            confidence=round(confidence, 3),
             detail=detail,
         ))
 
@@ -397,11 +478,15 @@ def analyze_redundancy(bundle: ContextBundle, strict_semantic: bool = False) -> 
     )
 
     # Findings are the single source of truth for total waste.
-    # Only REDUNDANT_CONTEXT findings count as true waste.
+    # Count EXACT, NEAR, and REDUNDANT_CONTEXT as true waste.
     final_wasted_tokens = sum(
         f.estimated_waste_tokens
         for f in findings
-        if f.classification == RedundancyClassification.REDUNDANT_CONTEXT
+        if f.classification in (
+            RedundancyClassification.EXACT_DUPLICATE,
+            RedundancyClassification.NEAR_DUPLICATE,
+            RedundancyClassification.REDUNDANT_CONTEXT,
+        )
     )
 
     return findings, final_wasted_tokens
@@ -426,6 +511,18 @@ def _build_detail(
     elif classification == RedundancyClassification.BOILERPLATE:
         return (
             f"{sim_pct} similarity — both items contain boilerplate instructions"
+        )
+    elif classification == RedundancyClassification.TOPIC_OVERLAP:
+        return (
+            f"{sim_pct} similarity — same subject, different content (Topic Overlap)"
+        )
+    elif classification == RedundancyClassification.NEAR_DUPLICATE:
+        return (
+            f"{sim_pct} similarity — near duplicate content"
+        )
+    elif classification == RedundancyClassification.EXACT_DUPLICATE:
+        return (
+            f"100% similarity — exact duplicate content"
         )
     else:
         src_a = item_a.source or item_a.type.value

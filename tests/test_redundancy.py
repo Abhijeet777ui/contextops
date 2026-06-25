@@ -57,7 +57,12 @@ def test_rs_ngram_fallback_on_short_text() -> None:
 # ── Integration tests ────────────────────────────────────────────────────
 
 def test_exact_match_redundancy() -> None:
-    """Identical strings from independent sources must be flagged as REDUNDANT_CONTEXT."""
+    """Identical strings from independent sources must be flagged as EXACT_DUPLICATE.
+
+    Phase 2 change: the hash pre-pass now fires before RS computation, so
+    content-identical items are always EXACT_DUPLICATE regardless of source.
+    This is the correct behaviour — identical tokens are always wasteful.
+    """
     content = "This is a detailed refund policy document stating that all refunds take five business days."
     bundle = ContextBundle(items=[
         ContextItem(type=ContextType.RETRIEVAL, content=content, source="alpha_doc.md", token_count=18),
@@ -67,8 +72,8 @@ def test_exact_match_redundancy() -> None:
     findings, wasted = analyze_redundancy(bundle)
 
     assert len(findings) == 1
-    assert findings[0].classification == RedundancyClassification.REDUNDANT_CONTEXT
-    assert findings[0].similarity_score > 0.9
+    assert findings[0].classification == RedundancyClassification.EXACT_DUPLICATE
+    assert findings[0].similarity_score == 1.0
     assert wasted > 0, "Exact match must produce non-zero wasted tokens"
 
 
@@ -144,7 +149,12 @@ def test_boilerplate_detection() -> None:
 
 
 def test_findings_are_single_source_of_truth() -> None:
-    """Wasted tokens must exactly equal the sum of REDUNDANT_CONTEXT finding waste."""
+    """Wasted tokens must exactly equal the sum of penalised finding waste.
+
+    Phase 2 change: EXACT_DUPLICATE and NEAR_DUPLICATE also contribute to wasted
+    tokens — they are all true waste sources. The sum must include all three
+    penalised classes (EXACT_DUPLICATE, NEAR_DUPLICATE, REDUNDANT_CONTEXT).
+    """
     bundle = ContextBundle(items=[
         ContextItem(type=ContextType.RETRIEVAL, content="Policy A: all refunds take 5 days to process fully.", source="doc_a.md", token_count=12),
         ContextItem(type=ContextType.RETRIEVAL, content="Policy A: all refunds take 5 days to process fully.", source="doc_b.md", token_count=12),
@@ -156,8 +166,12 @@ def test_findings_are_single_source_of_truth() -> None:
     expected_waste = sum(
         f.estimated_waste_tokens
         for f in findings
-        if f.classification == RedundancyClassification.REDUNDANT_CONTEXT
+        if f.classification in (
+            RedundancyClassification.EXACT_DUPLICATE,
+            RedundancyClassification.NEAR_DUPLICATE,
+            RedundancyClassification.REDUNDANT_CONTEXT,
+        )
     )
     assert wasted == expected_waste, (
-        f"Wasted tokens ({wasted}) must equal sum of REDUNDANT_CONTEXT waste ({expected_waste})"
+        f"Wasted tokens ({wasted}) must equal sum of penalised finding waste ({expected_waste})"
     )

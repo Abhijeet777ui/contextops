@@ -40,8 +40,7 @@ from contextops.core.roast import get_roast
 def analyze(
     bundle: ContextBundle,
     model: str = "gpt-4o",
-    cost_per_1k: float = 0.005,
-    config: ContextOpsConfig | None = None,
+    config: Optional[ContextOpsConfig] = None,
 ) -> AnalysisResult:
     """
     Run the full ContextOps analysis pipeline.
@@ -49,7 +48,6 @@ def analyze(
     Args:
         bundle: Normalized context bundle (from normalizer).
         model: Model name for tiktoken encoding.
-        cost_per_1k: Cost per 1K input tokens in USD.
         config: Custom thresholds and mode configuration.
 
     Returns:
@@ -58,11 +56,17 @@ def analyze(
     config = config or ContextOpsConfig.default()
 
     # ── Step 1: Token counting ──────────────────────────────────────
-    token_breakdown = analyze_tokens(bundle, model=model, cost_per_1k=cost_per_1k)
+    token_breakdown = analyze_tokens(bundle, model=model)
 
     # ── Step 2: Redundancy detection ────────────────────────────────
-    redundancy_findings, final_wasted_tokens = analyze_redundancy(bundle, strict_semantic=config.strict_semantic)
+    redundancy_findings, final_wasted_tokens = analyze_redundancy(
+        bundle,
+        strict_semantic=config.strict_semantic,
+        config=config,  # passes rs_minimum and future config fields through
+    )
     token_breakdown.wasted_tokens = final_wasted_tokens
+    if token_breakdown.total_tokens > 0:
+        token_breakdown.estimated_reduction_pct = (final_wasted_tokens / token_breakdown.total_tokens) * 100.0
 
     # ── Step 3: Structure analysis ──────────────────────────────────
     structure_findings = analyze_structure(bundle, config=config)
@@ -72,7 +76,7 @@ def analyze(
 
     # ── Step 4: Compute score ───────────────────────────────────────────
     score_breakdown = _compute_score(
-        bundle, token_breakdown, redundancy_findings, structure_findings, density_signal
+        bundle, token_breakdown, redundancy_findings, structure_findings, density_signal, config
     )
 
     # Update wasted tokens in token breakdown (already set from analyze_redundancy)
@@ -115,6 +119,7 @@ def _compute_score(
     redundancy_findings: list[RedundancyFinding],
     structure_findings: list[StructureFinding],
     density_signal: DensitySignal,
+    config: ContextOpsConfig,
 ) -> ScoreBreakdown:
     """
     Compute the 4-axis penalty score.
@@ -125,10 +130,10 @@ def _compute_score(
     Signal contract: each axis reads only from its designated input.
     No cross-axis reading is permitted.
     """
-    redundancy = _calc_redundancy_penalty(bundle, redundancy_findings, token_breakdown)
-    density = _calc_density_penalty(density_signal)   # reads DensitySignal only
+    redundancy = _calc_redundancy_penalty(bundle, redundancy_findings, token_breakdown, config)
+    density = _calc_density_penalty(density_signal, config)   # reads DensitySignal only
     structure = _calc_structure_penalty(structure_findings)
-    concentration = _calc_concentration_penalty(bundle)
+    concentration = _calc_concentration_penalty(bundle, config)
 
     return ScoreBreakdown(
         redundancy_penalty=redundancy,
@@ -142,6 +147,7 @@ def _calc_redundancy_penalty(
     bundle: ContextBundle,
     findings: list[RedundancyFinding],
     token_breakdown: TokenBreakdown,
+    config: ContextOpsConfig,
 ) -> float:
     """
     Redundancy penalty (0–30 pts).
@@ -165,41 +171,68 @@ def _calc_redundancy_penalty(
     waste_penalty_ratio = 1 - math.exp(-0.001 * wasted)
 
     # Cluster score: what fraction of items are involved in REDUNDANT_CONTEXT findings?
-    involved_ids: set[str] = set()
+    # Phase 0 Bug 2 fix: instead of counting all involved item IDs (which inflates score
+    # when one item appears in multiple findings), we use a per-item max-waste approach.
+    # Each item contributes its single highest waste finding — capping its influence
+    # regardless of how many pairs it appears in.
+    item_max_waste: dict[str, int] = {}
     for f in findings:
-        if f.classification == RedundancyClassification.REDUNDANT_CONTEXT:
-            involved_ids.add(f.item_a_id)
-            involved_ids.add(f.item_b_id)
+        if f.classification in (
+            RedundancyClassification.REDUNDANT_CONTEXT,
+            RedundancyClassification.EXACT_DUPLICATE,
+            RedundancyClassification.NEAR_DUPLICATE,
+        ):
+            # Each item in a pair claims the waste from that finding.
+            # If the item appears in multiple findings, we keep the max only.
+            item_max_waste[f.item_a_id] = max(
+                item_max_waste.get(f.item_a_id, 0), f.estimated_waste_tokens
+            )
+            item_max_waste[f.item_b_id] = max(
+                item_max_waste.get(f.item_b_id, 0), f.estimated_waste_tokens
+            )
 
-    cluster_score = len(involved_ids) / max(1, bundle.item_count)
+    # cluster_score = fraction of items that have ANY redundant involvement
+    cluster_score = len(item_max_waste) / max(1, bundle.item_count)
 
     penalty = (waste_penalty_ratio * 0.6 + cluster_score * 0.4) * 30.0
     return min(30.0, round(penalty, 2))
 
 
-def _calc_density_penalty(density_signal: DensitySignal) -> float:
+def _calc_density_penalty(density_signal: DensitySignal, config: ContextOpsConfig) -> float:
     """
     Structural density penalty (0–30 pts).
 
     Derived exclusively from DensitySignal — the structural analysis of raw context text.
     DensitySignal measures: format overhead (FO), whitespace waste (WL), entropy compression (EC).
 
-    Formula: penalty = total_density_signal × 30
-    where total_density_signal ∈ [0.0, 1.0] is the weighted combination:
-        total = 0.4 * FO + 0.2 * WL + 0.4 * EC
+    Phase 3.1 — Log-scale formula (replaces linear):
+        penalty = log(1 + total_signal * 2) / log(1 + 2) * 30
+
+    This compresses extreme values (large chunks with formatting noise) while
+    preserving full sensitivity at low signal values. Compared to linear:
+        signal 0.10 → linear  3.0 pts, log ~2.8 pts  (similar at low end)
+        signal 0.50 → linear 15.0 pts, log ~14.6 pts  (similar at mid)
+        signal 0.90 → linear 27.0 pts, log ~24.7 pts  (compressed at high end)
+        signal 1.00 → linear 30.0 pts, log ~30.0 pts  (same cap)
+
+    Phase 0 Bug 3 fix: divergence amplifier replaced with log-scale formula.
+    The old x130 linear amplifier could add up to 30 pts from divergence alone;
+    the log formula caps the bonus at ~8 pts for extreme divergence (0.30):
+        divergence 0.027 (attack baseline) → ~1.8 bonus pts
+        divergence 0.10                    → ~4.5 bonus pts
+        divergence 0.30 (extreme)          → ~8.0 bonus pts
 
     Signal contract: reads ONLY DensitySignal.
     Must NOT read wasted_tokens or any redundancy analyzer output.
     """
-    penalty = density_signal.total_density_signal * 30.0
-    
-    # Padding anomaly penalty (empirically calibrated in Exp11/Exp10)
-    # Natural benign baseline divergence is ~0.005; adversarial attack divergence is ~0.027.
-    # Threshold of 0.02 sits cleanly in the gap between the two distributions.
+    # Phase 3.1: log-scale total density formula
+    penalty = math.log1p(density_signal.total_density_signal * 2.0) / math.log1p(2.0) * 30.0
+
+    # Phase 0 Bug 3 fix: log-scale divergence amplifier (replaces linear × 130).
     if density_signal.system_divergence > 0.02:
-        # Scale penalty: divergence of 0.027 -> ~3.5 bonus pts; divergence of 0.10 -> ~10 pts.
-        penalty += (density_signal.system_divergence * 130.0)
-        
+        excess = density_signal.system_divergence - 0.02
+        penalty += math.log1p(excess * 50)
+
     return min(30.0, round(penalty, 2))
 
 
@@ -236,7 +269,7 @@ def _calc_structure_penalty(findings: list[StructureFinding]) -> float:
     return min(20.0, round(total, 2))
 
 
-def _calc_concentration_penalty(bundle: ContextBundle) -> float:
+def _calc_concentration_penalty(bundle: ContextBundle, config: ContextOpsConfig) -> float:
     """
     Concentration penalty (0–20 pts).
 
@@ -282,8 +315,47 @@ def _calc_concentration_penalty(bundle: ContextBundle) -> float:
     # Combine the signals
     # We weight Dominance slightly higher because it's a stronger failure mode in RAG
     p_con = (0.6 * p_dom) + (0.4 * p_ent)
+    p_con_adjusted = p_con * config.concentration_weight
 
-    return min(20.0, round(p_con * 20.0, 2))
+    return min(20.0, round(p_con_adjusted * 20.0, 2))
+
+
+# ── Padding Anomaly Detection (Phase 3.2) ───────────────────────────────
+
+
+def _is_padding_anomaly(density_signal: DensitySignal, bundle: ContextBundle) -> bool:
+    """
+    Phase 3.2 — Multi-condition gate for suspicious threshold padding.
+
+    Returns True only when ALL three conditions are met:
+      1. System divergence exceeds the adversarial baseline threshold (> 0.02)
+      2. Entropy compression is high (≥ 0.5) — indicates repetitive retrieval content
+      3. The corpus has fewer than 5 distinct sources — legitimate multi-source
+         diversity is NOT an anomaly
+
+    This prevents the common false positives:
+      - Multi-domain RAG corpora with natural divergence (fails condition 3)
+      - Clean but repetitive FAQ content (fails condition 2 in reverse)
+      - Single-document summaries with high format overhead (may fail condition 2)
+
+    When this gate fires, the result is an advisory recommendation (LOW severity),
+    NOT a score penalty. Adversarial padding is flagged for human review, not
+    automatically counted against the score.
+    """
+    # Condition 1: divergence above adversarial baseline
+    if density_signal.system_divergence <= 0.02:
+        return False
+
+    # Condition 2: retrieval content must be highly repetitive
+    if density_signal.entropy_compression < 0.5:
+        return False
+
+    # Condition 3: not a legitimate multi-source corpus
+    sources = {item.source for item in bundle.items if item.source}
+    if len(sources) >= 5:
+        return False
+
+    return True
 
 
 # ── Recommendations ─────────────────────────────────────────────────────
@@ -311,7 +383,11 @@ def _generate_recommendations(
     # Group redundant findings (skip expected overlaps)
     real_redundancy = [
         f for f in redundancy_findings
-        if f.classification == RedundancyClassification.REDUNDANT_CONTEXT
+        if f.classification in (
+            RedundancyClassification.REDUNDANT_CONTEXT,
+            RedundancyClassification.EXACT_DUPLICATE,
+            RedundancyClassification.NEAR_DUPLICATE,
+        )
     ]
 
     for finding in real_redundancy[:3]:  # Top 3 most impactful
@@ -369,14 +445,23 @@ def _generate_recommendations(
             severity=struct_finding.severity,
         ))
 
-    # ── Density Anomaly recommendations ─────────────────────────────
-    if density_signal and density_signal.system_divergence > 0.02:
+    # ── Density Anomaly recommendations (Phase 3.2 — advisory only) ────────
+    # The padding anomaly check is now a multi-condition gate. If it fires,
+    # we emit a LOW-severity advisory recommendation — NOT a score penalty.
+    # High false-positive risk means this should be reviewed, not auto-failed.
+    if density_signal and _is_padding_anomaly(density_signal, bundle):
         recs.append(Recommendation(
             issue=f"Suspicious Threshold Padding detected (divergence: {density_signal.system_divergence:.4f})",
-            impact_score=round(density_signal.system_divergence * 130.0, 1),
+            impact_score=0.0,  # Advisory: no score impact claimed
             token_savings=0,
-            fix="Adversarial Threshold Padding detected: retrieval context has structurally anomalous density divergence relative to the system prompt. Inspect retrieval chunks for malicious padding.",
-            severity=FindingSeverity.HIGH,
+            fix=(
+                "Advisory: retrieval context has anomalous density divergence relative to "
+                "the system prompt AND is highly repetitive with a small source pool. "
+                "Inspect retrieval chunks for malicious padding. "
+                f"(divergence: {density_signal.system_divergence:.4f}, "
+                f"entropy_compression: {density_signal.entropy_compression:.4f})"
+            ),
+            severity=FindingSeverity.LOW,  # Advisory — human review, not auto-block
         ))
 
     # Sort by impact (highest first)

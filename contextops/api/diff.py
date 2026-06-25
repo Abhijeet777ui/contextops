@@ -27,7 +27,7 @@ class ContextDiffResult:
     score_delta: int
     token_delta: int
     waste_delta: int
-    cost_delta: float
+    reduction_pct_delta: float
 
     # Structure Deltas (B - A)
     structure_delta: dict[str, float]
@@ -80,7 +80,7 @@ def diff_analysis_results(result_a: AnalysisResult, result_b: AnalysisResult) ->
     score_delta = result_b.score - result_a.score
     token_delta = result_b.token_breakdown.total_tokens - result_a.token_breakdown.total_tokens
     waste_delta = result_b.token_breakdown.wasted_tokens - result_a.token_breakdown.wasted_tokens
-    cost_delta = result_b.token_breakdown.estimated_cost_usd - result_a.token_breakdown.estimated_cost_usd
+    reduction_pct_delta = result_b.token_breakdown.estimated_reduction_pct - result_a.token_breakdown.estimated_reduction_pct
 
     # 2. Structure Deltas
     structure_delta = {
@@ -116,7 +116,7 @@ def diff_analysis_results(result_a: AnalysisResult, result_b: AnalysisResult) ->
         score_delta=score_delta,
         token_delta=token_delta,
         waste_delta=waste_delta,
-        cost_delta=cost_delta,
+        reduction_pct_delta=reduction_pct_delta,
         structure_delta=structure_delta,
         resolved_recommendations=resolved,
         new_recommendations=new,
