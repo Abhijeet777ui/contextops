@@ -9,7 +9,7 @@ from contextops.core.config import ContextOpsConfig
 if TYPE_CHECKING:
     from contextops.integrations.langchain.callback import ContextOpsCallbackHandler
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 
 class ContextOps:

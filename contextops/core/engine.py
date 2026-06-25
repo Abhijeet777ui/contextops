@@ -264,7 +264,8 @@ def _calc_structure_penalty(findings: list[StructureFinding]) -> float:
             # Low diversity finding — flat penalty
             contribution = 3.0
 
-        total += contribution * _SEVERITY_MULTIPLIER.get(f.severity, 1.0)
+        # Scale penalty by dual-threshold confidence (Phase 5)
+        total += contribution * _SEVERITY_MULTIPLIER.get(f.severity, 1.0) * f.confidence
 
     return min(20.0, round(total, 2))
 

@@ -201,30 +201,23 @@ class AnalysisResult:
     @property
     def ci_status(self) -> CIStatus:
         """
-        Two-Gate CI Status logic.
-        Gate 1: Score Band
-        Gate 2: Hard Stops (severity and exact duplicates)
+        3-Layer CI Gate logic.
+        Layer 1 (HARD FAIL): CRITICAL findings force FAIL.
+        Layer 2 (SCORE FAIL): score < 60 forces FAIL.
+        Layer 3 (WARN / PASS): score < 80 forces WARN. Otherwise PASS.
         """
-        candidate_status = CIStatus.PASS
-        if self.score < 60:
-            candidate_status = CIStatus.FAIL
-        elif self.score < 80:
-            candidate_status = CIStatus.WARN
-
-        # Hard stops
         has_critical = any(f.severity == FindingSeverity.CRITICAL for f in self.structure_findings) or \
                        any(r.severity == FindingSeverity.CRITICAL for r in self.recommendations)
-        has_high = any(f.severity == FindingSeverity.HIGH for f in self.structure_findings) or \
-                   any(r.severity == FindingSeverity.HIGH for r in self.recommendations)
-        has_exact_dup = any(f.classification == RedundancyClassification.EXACT_DUPLICATE for f in self.redundancy_findings)
         
-        if has_critical or has_exact_dup:
+        if has_critical:
             return CIStatus.FAIL
-        
-        if has_high and candidate_status == CIStatus.PASS:
+            
+        if self.score < 60:
+            return CIStatus.FAIL
+        elif self.score < 80:
             return CIStatus.WARN
             
-        return candidate_status
+        return CIStatus.PASS
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON output."""

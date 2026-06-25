@@ -13,6 +13,7 @@ Detects:
 """
 
 from __future__ import annotations
+import math
 
 from contextops.core.config import ContextOpsConfig
 from contextops.core.models import (
@@ -90,25 +91,46 @@ def analyze_structure(bundle: ContextBundle, config: ContextOpsConfig | None = N
         max_ratio = thresholds_map[ctx_type]
 
         if ratio > max_ratio:
+            # Dual-Threshold Confidence Scaling
+            if tokens < 200:
+                confidence = 0.2
+            elif tokens >= 1000:
+                confidence = 1.0
+            else:
+                ratio_in_range = math.log(tokens / 200) / math.log(1000 / 200)
+                confidence = 0.2 + (0.8 * ratio_in_range)
+
             findings.append(StructureFinding(
                 issue=str(issue_info["issue"]),
                 context_type=ctx_type,
                 actual_ratio=ratio,
                 threshold=max_ratio,
                 severity=issue_info["severity"],  # type: ignore[arg-type]
+                confidence=round(confidence, 3),
             ))
 
     # Check for low type diversity
     unique_types = len(type_tokens)
     if unique_types < RECOMMENDED_MIN_TYPES and bundle.item_count > 1:
-        # Find the dominant type
         dominant = max(type_tokens, key=lambda t: type_tokens[t])
+        dom_tokens = type_tokens[dominant]
+        
+        # Dual-Threshold Confidence Scaling
+        if dom_tokens < 200:
+            confidence = 0.2
+        elif dom_tokens >= 1000:
+            confidence = 1.0
+        else:
+            ratio_in_range = math.log(dom_tokens / 200) / math.log(1000 / 200)
+            confidence = 0.2 + (0.8 * ratio_in_range)
+
         findings.append(StructureFinding(
             issue="Low context diversity",
             context_type=dominant,
-            actual_ratio=type_tokens[dominant] / total_tokens,
+            actual_ratio=dom_tokens / total_tokens,
             threshold=0.0,  # not a ratio threshold
             severity=FindingSeverity.LOW,
+            confidence=round(confidence, 3),
         ))
 
     # Sort by severity (critical first)
