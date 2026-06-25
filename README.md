@@ -26,11 +26,17 @@ ContextOps gives you this visibility. It runs in your testing pipeline, scores e
 
 ---
 
-## What is New in v0.3.0
+## What is New in v0.3.x (Production Ready)
 
-- **The Roast Engine**: Enable the `--roast` flag on the CLI to get brutally honest, score-band commentary on your context quality. It will tell you exactly how bad (or good) your context really is.
+ContextOps v0.3.x introduces major architectural upgrades, graduating the engine from a basic linter to a robust CI signal system:
+
+- **Deterministic Fast-Pass Redundancy**: 100% exact-match redundancy detection via rolling `xxhash` signatures. Filters out semantic paraphrases and only flags guaranteed token waste.
+- **Log-Scale Density Scoring**: Advanced density calculations using logarithmic formulas to cleanly score whitespace, JSON structure, and markdown format overhead without false-positive penalty explosions.
+- **Dual-Threshold Structure Confidence**: Structure penalties dynamically scale with the absolute token size of the payload. Prevents tiny, healthy contexts (< 200 tokens) from failing CI gates due to ratio imbalances.
+- **Coherent 3-Layer CI Gating**: The CI Status (`PASS`/`WARN`/`FAIL`) is now perfectly aligned with the numeric health score. Only truly toxic `CRITICAL` findings trigger hard CI failures on otherwise healthy scores.
+- **Schema v2.0**: The engine now outputs a richer JSON analysis result, tracking `estimated_reduction_pct` and `confidence` metrics natively.
+- **The Roast Engine**: Enable the `--roast` flag on the CLI to get brutally honest, score-band commentary on your context quality.
 - **ContextBench**: We have introduced ContextBench, a suite of 1,500 real-world enterprise context payloads to test and calibrate scoring algorithms.
-- **JSON Output**: The roast commentary is now included in the raw JSON output for easy integration into dashboards or leaderboards.
 
 ---
 
