@@ -1,0 +1,20 @@
+{
+    "system": "You are a customer support AI for AcmeCorp. Answer questions strictly using the provided documents.",
+    "messages": [
+        {"role": "user", "content": "How do I process a refund?"}
+    ],
+    "chunks": [
+        {
+            "source": "docs/refunds.md",
+            "content": "Refunds can be processed within 30 days of purchase.\n\n---\nAcmeCorp Confidential.\nCopyright 2026 AcmeCorp Inc. All rights reserved.\nBy using this document, you agree to our Terms of Service at https://acmecorp.com/tos.\nPrivacy Policy: https://acmecorp.com/privacy\nContact us at 1-800-ACME-CORP for any legal inquiries.\nThis document is intended solely for internal use."
+        },
+        {
+            "source": "docs/exchanges.md",
+            "content": "Exchanges are allowed within 15 days for unopened items.\n\n---\nAcmeCorp Confidential.\nCopyright 2026 AcmeCorp Inc. All rights reserved.\nBy using this document, you agree to our Terms of Service at https://acmecorp.com/tos.\nPrivacy Policy: https://acmecorp.com/privacy\nContact us at 1-800-ACME-CORP for any legal inquiries.\nThis document is intended solely for internal use."
+        },
+        {
+            "source": "docs/shipping.md",
+            "content": "Return shipping costs are the responsibility of the buyer unless the item is defective.\n\n---\nAcmeCorp Confidential.\nCopyright 2026 AcmeCorp Inc. All rights reserved.\nBy using this document, you agree to our Terms of Service at https://acmecorp.com/tos.\nPrivacy Policy: https://acmecorp.com/privacy\nContact us at 1-800-ACME-CORP for any legal inquiries.\nThis document is intended solely for internal use."
+        }
+    ]
+}

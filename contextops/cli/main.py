@@ -74,6 +74,7 @@ def cli() -> None:
 @click.option("--json-output", is_flag=True, help="Output raw JSON instead of pretty format")
 @click.option("--model", default="gpt-4o", help="Model for token encoding (default: gpt-4o)")
 @click.option("--config", help="Path to JSON config file")
+@click.option("--profile", type=click.Choice(["general", "rag", "agent", "chatbot", "toolchain"]), help="Archetype profile to use for scoring")
 @click.option("--retrieval-max-ratio", type=float, help="Override retrieval max ratio")
 @click.option("--system-max-ratio", type=float, help="Override system max ratio")
 @click.option("--memory-max-ratio", type=float, help="Override memory max ratio")
@@ -85,6 +86,7 @@ def inspect(
     json_output: bool,
     model: str,
     config: str | None,
+    profile: str | None,
     retrieval_max_ratio: float | None,
     system_max_ratio: float | None,
     memory_max_ratio: float | None,
@@ -110,7 +112,7 @@ def inspect(
     else:
         raw_input = _load_file(file)
 
-    result = inspect_context(raw_input, model=model, config=cfg)
+    result = inspect_context(raw_input, model=model, config=cfg, cli_profile=profile)
     output = render(result, use_json=json_output, explain=explain)
     _safe_echo(output)
 
@@ -121,6 +123,7 @@ def inspect(
 @click.option("--model", default="gpt-4o", help="Model for token encoding (default: gpt-4o)")
 @click.option("--json-output", is_flag=True, help="Output JSON instead of pretty format")
 @click.option("--config", help="Path to JSON config file")
+@click.option("--profile", type=click.Choice(["general", "rag", "agent", "chatbot", "toolchain"]), help="Archetype profile to use for scoring")
 @click.option("--retrieval-max-ratio", type=float, help="Override retrieval max ratio")
 @click.option("--system-max-ratio", type=float, help="Override system max ratio")
 @click.option("--memory-max-ratio", type=float, help="Override memory max ratio")
@@ -133,6 +136,7 @@ def check(
     model: str,
     json_output: bool,
     config: str | None,
+    profile: str | None,
     retrieval_max_ratio: float | None,
     system_max_ratio: float | None,
     memory_max_ratio: float | None,
@@ -153,7 +157,7 @@ def check(
     )
 
     raw_input = _load_file(file)
-    result = inspect_context(raw_input, model=model, config=cfg)
+    result = inspect_context(raw_input, model=model, config=cfg, cli_profile=profile)
 
     if json_output:
         output = render(result, use_json=True, explain=explain)
@@ -327,6 +331,109 @@ def _get_demo_context() -> dict:
         ],
     }
 
+
+# ── Telemetry CLI ──────────────────────────────────────────────────────────
+
+@cli.group()
+def telemetry() -> None:
+    """Manage ContextOps local telemetry."""
+    pass
+
+@telemetry.command()
+def status() -> None:
+    """Show telemetry status and file location."""
+    from contextops.core.telemetry import _IS_ENABLED, get_telemetry_path
+    
+    status_str = click.style("ENABLED", fg="green") if _IS_ENABLED else click.style("DISABLED", fg="yellow")
+    click.echo(f"Telemetry is {status_str}")
+    
+    path = get_telemetry_path()
+    click.echo(f"File path: {path}")
+    
+    if path.exists():
+        size = path.stat().st_size
+        click.echo(f"File size: {size} bytes")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = sum(1 for _ in f)
+            click.echo(f"Total events: {lines}")
+        except Exception:
+            pass
+    else:
+        click.echo("File does not exist yet.")
+
+@telemetry.command()
+@click.option("--limit", type=int, default=10, help="Number of recent events to show")
+def log(limit: int) -> None:
+    """Show recent telemetry events."""
+    from contextops.core.telemetry import read_events
+    events = read_events(limit)
+    if not events:
+        click.echo("No telemetry events found.")
+        return
+        
+    for e in events:
+        score = e.get("score", "?")
+        delta = e.get("score_delta")
+        delta_str = f"({delta:+d})" if delta is not None else ""
+        arch = e.get("archetype", "general")
+        ts = e.get("ts", "")
+        findings = ", ".join(e.get("top_findings", []))
+        
+        click.echo(f"[{ts}] Score: {score} {delta_str} | Archetype: {arch} | Findings: {findings}")
+
+@telemetry.command()
+@click.option("--days", type=int, default=30, help="Number of days to analyze for trends")
+def trends(days: int) -> None:
+    """Show operational trends over a given time period."""
+    from contextops.core.telemetry import get_trends
+    
+    t = get_trends(days)
+    if not t or t.get("event_count", 0) == 0:
+        click.echo("Not enough telemetry data to calculate trends.")
+        return
+        
+    click.echo(f"Average score ({days} days): {t.get('avg_score', 0):.0f}")
+    click.echo(f"Average wasted tokens: {t.get('avg_wasted', 0):.0f}")
+    
+    common = t.get("most_common_failure")
+    if common:
+        click.echo(f"\nMost common failure:\n{common}")
+        
+    trend_val = t.get("trend", 0)
+    if trend_val > 0:
+        trend_str = click.style(f"UP {trend_val:.0f}%", fg="green")
+    elif trend_val < 0:
+        trend_str = click.style(f"DOWN {abs(trend_val):.0f}%", fg="red")
+    else:
+        trend_str = "FLAT"
+        
+    click.echo(f"\nQuality trend:\n{trend_str}")
+
+
+# ── Badge CLI ──────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--score", type=int, help="The score to generate a badge for (0-100). If omitted, uses your last telemetry score.")
+def badge(score: int | None) -> None:
+    """Generate a GitHub shields.io markdown badge for a ContextOps score."""
+    if score is None:
+        from contextops.core.telemetry import read_last_score
+        last_score = read_last_score()
+        if last_score is None:
+            click.echo("Error: No previous telemetry score found. Please specify --score.", err=True)
+            return
+        score = last_score
+        
+    if score >= 90:
+        color = "green"
+    elif score >= 70:
+        color = "yellow"
+    else:
+        color = "red"
+        
+    badge_md = f"[![ContextOps](https://img.shields.io/badge/ContextOps-{score}-{color})](https://github.com/contextops)"
+    click.echo(badge_md)
 
 if __name__ == "__main__":
     cli()

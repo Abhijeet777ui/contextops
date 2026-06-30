@@ -13,11 +13,14 @@ Example:
     })
     print(result.score)
     print(json.dumps(result.to_dict(), indent=2))
+
+    # With explicit archetype:
+    result = inspect_context(payload, archetype="rag")
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from contextops.core.config import ContextOpsConfig
 from contextops.core.engine import analyze
@@ -29,6 +32,8 @@ def inspect_context(
     raw_input: str | list[dict[str, Any]] | dict[str, Any],
     model: str = "gpt-4o",
     config: Optional[ContextOpsConfig] = None,
+    cli_profile: Optional[str] = None,
+    archetype: Optional[str] = None,
 ) -> AnalysisResult:
     """
     Analyze an LLM context and return a full AnalysisResult.
@@ -42,9 +47,14 @@ def inspect_context(
             - dict: structured dict with system/messages/chunks/memory/tools
         model: Model name for tiktoken encoding estimation.
         config: Optional configuration overrides (mode, thresholds).
+        cli_profile: Archetype from the CLI --profile flag (highest priority).
+        archetype: Optional archetype override ('general', 'rag', 'agent',
+            'chatbot', 'toolchain').  Sits at the API layer of the resolution
+            chain — overridden only by a CLI --profile flag, but overrides
+            any archetype key embedded in the payload.
 
     Returns:
         AnalysisResult containing score, breakdown, findings, and recommendations.
     """
     bundle = normalize(raw_input)
-    return analyze(bundle, model=model, config=config)
+    return analyze(bundle, model=model, config=config, cli_profile=cli_profile, archetype=archetype)

@@ -26,15 +26,16 @@ ContextOps gives you this visibility. It runs in your testing pipeline, scores e
 
 ---
 
-## What is New in v0.3.x (Production Ready)
+## What is New in v0.3.3 (Production Ready)
 
-ContextOps v0.3.x introduces major architectural upgrades, graduating the engine from a basic linter to a robust CI signal system:
+ContextOps v0.3.3 introduces major architectural upgrades, graduating the engine from a basic linter to a robust CI signal system:
 
+- **Archetype-Aware Scoring**: Optimize evaluation based on payload intent (`rag`, `agent`, `chatbot`, `toolchain`). ContextOps intelligently suppresses irrelevant structural findings (like tool sprawl for agents) without corrupting the universal 0-100 global score.
+- **Opt-In Local Telemetry & Trends**: Track your context quality over time locally. Use `contextops telemetry trends` to instantly see your 30-day average score, wasted tokens, and most common failures.
+- **GitHub Badges**: Show off your context quality! Run `contextops badge` to instantly generate a shields.io markdown badge for your project's README.
 - **Deterministic Fast-Pass Redundancy**: 100% exact-match redundancy detection via rolling `xxhash` signatures. Filters out semantic paraphrases and only flags guaranteed token waste.
 - **Log-Scale Density Scoring**: Advanced density calculations using logarithmic formulas to cleanly score whitespace, JSON structure, and markdown format overhead without false-positive penalty explosions.
 - **Dual-Threshold Structure Confidence**: Structure penalties dynamically scale with the absolute token size of the payload. Prevents tiny, healthy contexts (< 200 tokens) from failing CI gates due to ratio imbalances.
-- **Coherent 3-Layer CI Gating**: The CI Status (`PASS`/`WARN`/`FAIL`) is now perfectly aligned with the numeric health score. Only truly toxic `CRITICAL` findings trigger hard CI failures on otherwise healthy scores.
-- **Schema v2.0**: The engine now outputs a richer JSON analysis result, tracking `estimated_reduction_pct` and `confidence` metrics natively.
 - **The Roast Engine**: Enable the `--roast` flag on the CLI to get brutally honest, score-band commentary on your context quality.
 - **ContextBench**: We have introduced ContextBench, a suite of 1,500 real-world enterprise context payloads to test and calibrate scoring algorithms.
 
@@ -78,14 +79,20 @@ contextops inspect context.json
 # Add the roast flag for honest commentary
 contextops inspect context.json --roast
 
+# Use a specific archetype profile to suppress irrelevant warnings
+contextops inspect context.json --profile rag
+
 # CI mode: fail if the score drops below a threshold
 contextops check context.json --min-score 70
 
 # Compare two snapshots to find regressions
 contextops diff before.json after.json
 
-# JSON output for automation
-contextops inspect context.json --json-output
+# View 30-day operational telemetry trends
+contextops telemetry trends
+
+# Generate a GitHub badge based on your last telemetry run
+contextops badge
 ```
 
 ### Python API
@@ -100,7 +107,7 @@ result = inspect_context({
         {"content": "Refund policy: within 30 days...", "source": "docs/refund.md"},
     ],
     "memory": ["User asked about refunds before."],
-})
+}, archetype="rag")
 
 print(f"Score: {result.score}/100")
 print(f"Wasted tokens: {result.token_breakdown.wasted_tokens}")

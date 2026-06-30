@@ -105,8 +105,12 @@ def _normalize_structured_dict(data: dict) -> ContextBundle:
         - chunks / retrieval: list[str | dict]
         - memory: list[str | dict]
         - tools: list[str | dict]
+        - archetype: str — optional archetype hint embedded in the payload
     """
     items: list[ContextItem] = []
+
+    # Extract archetype key before building items (not a context item)
+    payload_archetype: str | None = data.get("archetype") or None
 
     # System prompt
     if "system" in data:
@@ -184,4 +188,4 @@ def _normalize_structured_dict(data: dict) -> ContextBundle:
                 metadata={k: v for k, v in tool.items() if k not in ("content", "source", "output", "name")},
             ))
 
-    return ContextBundle(items=items)
+    return ContextBundle(items=items, archetype=payload_archetype)

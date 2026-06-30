@@ -141,3 +141,30 @@ class ContextOpsConfig:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data)
+
+    def with_profile(self, profile: str) -> "ContextOpsConfig":
+        """
+        Return a new ContextOpsConfig with the given profile's preset thresholds
+        applied on top of this config's settings.
+
+        The original config is never mutated. This is the immutable resolution
+        pattern used by the engine to apply an archetype without side effects.
+
+        Args:
+            profile: One of 'general', 'rag', 'agent', 'chatbot', 'toolchain'.
+                     Unknown profiles fall back to 'general' silently.
+
+        Returns:
+            A fresh ContextOpsConfig with preset thresholds merged in.
+        """
+        import copy
+        new_config = copy.copy(self)
+        
+        if self.context_profile == profile:
+            return new_config
+            
+        preset = _PROFILE_PRESETS.get(profile, _PROFILE_PRESETS["generic"])
+        for k, v in preset.items():
+            setattr(new_config, k, v)
+        new_config.context_profile = profile
+        return new_config

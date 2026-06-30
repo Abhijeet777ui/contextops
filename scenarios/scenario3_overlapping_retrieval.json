@@ -1,0 +1,20 @@
+{
+    "system": "You are a technical support bot. Help the user configure their environment based on the docs.",
+    "messages": [
+        {"role": "user", "content": "How do I configure Single Sign-On (SSO)?"}
+    ],
+    "chunks": [
+        {
+            "source": "docs/sso_okta.md",
+            "content": "Single Sign-On (SSO) is an authentication scheme that allows a user to log in with a single ID and password to any of several related, yet independent, software systems. True SSO allows the user to log in once and access services without re-entering authentication factors. It improves security by reducing password fatigue and centralizing access control. \n\nTo configure Okta SSO:\n1. Log into your Okta admin portal.\n2. Navigate to Applications -> Add Application.\n3. Create a new SAML 2.0 app integration.\n4. Copy your IdP Metadata URL into the AcmeCorp settings."
+        },
+        {
+            "source": "docs/sso_azure.md",
+            "content": "Single Sign-On (SSO) is an authentication scheme that allows a user to log in with a single ID and password to any of several related, yet independent, software systems. True SSO allows the user to log in once and access services without re-entering authentication factors. It improves security by reducing password fatigue and centralizing access control. \n\nTo configure Azure AD SSO:\n1. Go to the Azure Active Directory portal.\n2. Select Enterprise Applications -> New application.\n3. Choose Non-gallery application and name it.\n4. Set up Single Sign-On using SAML and download the Federation Metadata XML."
+        },
+        {
+            "source": "docs/sso_google.md",
+            "content": "Single Sign-On (SSO) is an authentication scheme that allows a user to log in with a single ID and password to any of several related, yet independent, software systems. True SSO allows the user to log in once and access services without re-entering authentication factors. It improves security by reducing password fatigue and centralizing access control. \n\nTo configure Google Workspace SSO:\n1. Open the Google Admin console.\n2. Go to Web and mobile apps.\n3. Click Add App -> Add custom SAML app.\n4. Download the IdP metadata and upload it to the AcmeCorp security panel."
+        }
+    ]
+}

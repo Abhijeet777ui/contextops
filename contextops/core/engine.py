@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from typing import Optional
 
 from contextops.analyzers.density import compute_density_signal
 from contextops.analyzers.redundancy import analyze_redundancy
@@ -36,11 +37,150 @@ from contextops.core.models import (
 )
 from contextops.core.roast import get_roast
 
+# ── Archetype constants ─────────────────────────────────────────────────────
+
+# The canonical set of supported archetypes.  The profile preset keys in
+# config.py use "generic" internally; we expose "general" as the user-facing
+# name and map it here.
+_VALID_ARCHETYPES: frozenset[str] = frozenset(
+    {"general", "generic", "rag", "agent", "chatbot", "toolchain"}
+)
+
+# User-facing → internal preset key
+_ARCHETYPE_ALIAS: dict[str, str] = {"general": "generic"}
+
+
+def _resolve_archetype(
+    bundle: ContextBundle,
+    config: ContextOpsConfig,
+    cli_profile: Optional[str] = None,
+    api_archetype: Optional[str] = None,
+) -> tuple[str, str]:
+    """
+    Resolve the active archetype via the strict priority chain:
+
+        CLI --profile  >  API archetype arg  >  payload "archetype" key
+        >  config.context_profile  >  "general"
+
+    Returns:
+        (resolved_label, source)  where source is one of:
+        "cli", "api", "payload", "config", "default"
+
+    The returned label is always user-facing ("general" not "generic").
+    """
+    def _normalise(raw: Optional[str]) -> Optional[str]:
+        """Lower-case and validate; return None if invalid."""
+        if raw is None:
+            return None
+        s = raw.strip().lower()
+        return s if s in _VALID_ARCHETYPES else None
+
+    def _label(internal: str) -> str:
+        """Map internal key to user-facing label."""
+        return "general" if internal == "generic" else internal
+
+    if _normalise(cli_profile) is not None:
+        return _label(_normalise(cli_profile)), "cli"  # type: ignore[arg-type]
+
+    if _normalise(api_archetype) is not None:
+        return _label(_normalise(api_archetype)), "api"  # type: ignore[arg-type]
+
+    if _normalise(bundle.archetype) is not None:
+        return _label(_normalise(bundle.archetype)), "payload"  # type: ignore[arg-type]
+
+    cfg_profile = config.context_profile
+    if _normalise(cfg_profile) is not None and cfg_profile != "generic":
+        return _label(cfg_profile), "config"
+
+    return "general", "default"
+
+
+# ── Contract validation ─────────────────────────────────────────────────────
+
+# Rules: each archetype maps to (context_type_checked, max_tolerated_ratio, message)
+_CONTRACT_RULES: dict[str, tuple[ContextType, float, str]] = {
+    "rag": (
+        ContextType.TOOL,
+        0.20,
+        "RAG archetype declared but tool output exceeds 20% of context — "
+        "consider switching to the 'agent' or 'toolchain' profile.",
+    ),
+    "agent": (
+        ContextType.RETRIEVAL,
+        0.60,
+        "Agent archetype declared but retrieval chunks exceed 60% of context — "
+        "consider switching to the 'rag' profile.",
+    ),
+    "chatbot": (
+        ContextType.TOOL,
+        0.20,
+        "Chatbot archetype declared but tool output exceeds 20% of context — "
+        "this looks more like a toolchain or agent pattern.",
+    ),
+    "toolchain": (
+        ContextType.RETRIEVAL,
+        0.30,
+        "Toolchain archetype declared but retrieval chunks exceed 30% of context — "
+        "consider the 'agent' or 'rag' profile instead.",
+    ),
+}
+
+
+def archetype_contract_check(
+    bundle: ContextBundle,
+    resolved_archetype: str,
+) -> list[Recommendation]:
+    """
+    Advisory-only contract validation.
+
+    Checks whether the payload's actual content composition is consistent
+    with the declared archetype.  Mismatches are surfaced as LOW severity
+    advisory recommendations with zero score impact.
+
+    This step does NOT modify the score and does NOT raise findings.
+    It only appends to the recommendations list.
+    """
+    rule = _CONTRACT_RULES.get(resolved_archetype)
+    if rule is None:
+        return []
+
+    checked_type, max_ratio, message = rule
+    total = bundle.total_tokens
+    if total == 0:
+        return []
+
+    type_tokens = sum(
+        item.token_count
+        for item in bundle.items
+        if item.type == checked_type
+    )
+    actual_ratio = type_tokens / total
+
+    if actual_ratio <= max_ratio:
+        return []
+
+    return [
+        Recommendation(
+            issue="archetype_mismatch",
+            impact_score=0.0,  # advisory — zero penalty
+            token_savings=0,
+            fix=(
+                f"[Advisory — archetype: {resolved_archetype}] {message} "
+                f"(actual {checked_type.value} ratio: {actual_ratio:.0%}, "
+                f"contract limit: {max_ratio:.0%})"
+            ),
+            severity=FindingSeverity.LOW,
+            confidence=1.0,
+        )
+    ]
+
 
 def analyze(
     bundle: ContextBundle,
     model: str = "gpt-4o",
     config: Optional[ContextOpsConfig] = None,
+    cli_profile: Optional[str] = None,
+    archetype: Optional[str] = None,
 ) -> AnalysisResult:
     """
     Run the full ContextOps analysis pipeline.
@@ -49,11 +189,23 @@ def analyze(
         bundle: Normalized context bundle (from normalizer).
         model: Model name for tiktoken encoding.
         config: Custom thresholds and mode configuration.
+        cli_profile: Archetype from the CLI --profile flag (highest priority).
+        archetype: Archetype from the programmatic API call (second priority).
 
     Returns:
         Complete AnalysisResult ready for JSON serialization or CLI rendering.
     """
     config = config or ContextOpsConfig.default()
+
+    # ── Archetype resolution (immutable — never mutates config) ────────────
+    resolved_archetype, archetype_source = _resolve_archetype(
+        bundle, config, cli_profile=cli_profile, api_archetype=archetype
+    )
+    # Derive the active config for scoring — original config is untouched.
+    internal_profile = _ARCHETYPE_ALIAS.get(resolved_archetype, resolved_archetype)
+    active_config = config.with_profile(internal_profile)
+    # Preserve roast preference from the caller’s config
+    active_config.roast_enabled = config.roast_enabled
 
     # ── Step 1: Token counting ──────────────────────────────────────
     token_breakdown = analyze_tokens(bundle, model=model)
@@ -61,42 +213,47 @@ def analyze(
     # ── Step 2: Redundancy detection ────────────────────────────────
     redundancy_findings, final_wasted_tokens = analyze_redundancy(
         bundle,
-        strict_semantic=config.strict_semantic,
-        config=config,  # passes rs_minimum and future config fields through
+        strict_semantic=active_config.strict_semantic,
+        config=active_config,
     )
     token_breakdown.wasted_tokens = final_wasted_tokens
     if token_breakdown.total_tokens > 0:
         token_breakdown.estimated_reduction_pct = (final_wasted_tokens / token_breakdown.total_tokens) * 100.0
 
     # ── Step 3: Structure analysis ──────────────────────────────────
-    structure_findings = analyze_structure(bundle, config=config)
+    structure_findings = analyze_structure(bundle, config=active_config)
 
     # ── Step 3.5: Shadow Density analysis ───────────────────────────
     density_signal = compute_density_signal(bundle)
 
     # ── Step 4: Compute score ───────────────────────────────────────────
     score_breakdown = _compute_score(
-        bundle, token_breakdown, redundancy_findings, structure_findings, density_signal, config
+        bundle, token_breakdown, redundancy_findings, structure_findings, density_signal, active_config
     )
 
-    # Update wasted tokens in token breakdown (already set from analyze_redundancy)
-    
     # ── Step 5: Generate recommendations ────────────────────────────
     recommendations = _generate_recommendations(
         bundle, redundancy_findings, structure_findings, score_breakdown, density_signal
     )
 
+    # ── Step 5.5: Archetype contract check (advisory, zero penalty) ─
+    contract_advisories = archetype_contract_check(bundle, resolved_archetype)
+    # Append advisories AFTER scoring — they must not influence the score
+    recommendations.extend(contract_advisories)
+
     # ── Step 6: Assemble result ─────────────────────────────────────
     result = AnalysisResult(
         score=score_breakdown.score,
-        mode=config.mode,
-        config_version=config.version,
+        mode=active_config.mode,
+        config_version=active_config.version,
         density_signal=density_signal,
         score_breakdown=score_breakdown,
         token_breakdown=token_breakdown,
         redundancy_findings=redundancy_findings,
         structure_findings=structure_findings,
         recommendations=recommendations,
+        archetype_resolved=resolved_archetype,
+        archetype_source=archetype_source,
         metadata={
             "item_count": bundle.item_count,
             "model": model,
@@ -105,8 +262,11 @@ def analyze(
     )
 
     # ── Step 7: Attach roast (opt-in, non-deterministic) ────────────
-    if config.roast_enabled:
+    if active_config.roast_enabled:
         result.roast = get_roast(score=result.score, breakdown=score_breakdown)
+
+    from contextops.core import telemetry
+    telemetry.record_event(result)
 
     return result
 

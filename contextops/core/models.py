@@ -78,8 +78,12 @@ class ContextBundle:
 
     This is a list of ContextItems. Every analyzer, the scoring engine,
     and the recommendation engine operate exclusively on ContextBundle.
+
+    archetype: the archetype key extracted from the payload's "archetype"
+    field by the normalizer. None when the payload declares no archetype.
     """
     items: list[ContextItem] = field(default_factory=list)
+    archetype: str | None = None
 
     @property
     def total_tokens(self) -> int:
@@ -182,6 +186,12 @@ class AnalysisResult:
 
     This is the JSON-primary API contract. The CLI renderer reads this.
     CI mode reads this. Everything derives from this object.
+
+    archetype_resolved: the archetype profile that was actually used for
+        scoring (e.g. "rag", "agent", "general").
+    archetype_source: which layer of the resolution hierarchy provided the
+        winning archetype. One of: "cli", "api", "payload", "config",
+        "default".
     """
     score: int
     score_breakdown: ScoreBreakdown
@@ -194,6 +204,9 @@ class AnalysisResult:
     config_version: str = "1.0"
     density_signal: DensitySignal | None = None
     density_effect: Literal["shadow", "active"] = "shadow"
+    # Archetype audit trace — always populated.
+    archetype_resolved: str = "general"
+    archetype_source: str = "default"
     # Roast is random per-run — explicitly non-deterministic.
     # Only populated when roast_enabled=True in config.
     roast: "RoastResult | None" = None
@@ -222,11 +235,15 @@ class AnalysisResult:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON output."""
         res = {
-            "schema_version": "2.0",
+            "schema_version": "2.1",
             "score": self.score,
             "ci_status": self.ci_status.value,
             "mode": self.mode,
             "config_version": self.config_version,
+            "archetype": {
+                "resolved": self.archetype_resolved,
+                "source": self.archetype_source,
+            },
             "score_breakdown": {
                 "redundancy_penalty": round(self.score_breakdown.redundancy_penalty, 2),
                 "density_penalty": round(self.score_breakdown.density_penalty, 2),
